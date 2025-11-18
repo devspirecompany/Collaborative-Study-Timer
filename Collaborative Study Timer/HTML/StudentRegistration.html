@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpireWorks - Student Registration</title>
+    <link rel="stylesheet" href="..//CSS/StudentRegistration.css">
+</head>
+<body>
+    <div class="register-container">
+        <div class="register-left">
+            <div class="brand-section">
+                <div class="logo">
+                    <img src="..//imgs/SpireWorksLogo.png" alt="SpireWorks Logo" class="logo-img">
+                    <h1>SpireWorks</h1>
+                </div>
+                <p class="tagline">Elevate your study. Amplify your success.</p>
+            </div>
+            
+            <div class="features">
+                <div class="feature-item">
+                    <div class="feature-icon">⚡</div>
+                    <div>
+                        <h3>Get Started in Seconds</h3>
+                        <p>Quick and easy registration process</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🎯</div>
+                    <div>
+                        <h3>Personalized Experience</h3>
+                        <p>Customized study plans just for you</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🔒</div>
+                    <div>
+                        <h3>Secure & Private</h3>
+                        <p>Your data is protected with us</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🌟</div>
+                    <div>
+                        <h3>Join the Community</h3>
+                        <p>Connect with thousands of learners</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="register-right">
+            <div class="register-form-wrapper">
+                <div class="form-header">
+                    <h2>Create Your Account</h2>
+                    <p>Start your productivity journey today</p>
+                </div>
+
+                <form id="registerForm" class="register-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="firstName">First Name</label>
+                            <div class="input-wrapper">
+                                <svg class="input-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                    <path d="M10 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 18a6 6 0 1 1 12 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                                <input 
+                                    type="text" 
+                                    id="firstName" 
+                                    name="firstName" 
+                                    placeholder="Ash"
+                                    required
+                                >
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="lastName">Last Name</label>
+                            <div class="input-wrapper">
+                                <svg class="input-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                    <path d="M10 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 18a6 6 0 1 1 12 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                                <input 
+                                    type="text" 
+                                    id="lastName" 
+                                    name="lastName" 
+                                    placeholder="Quicho"
+                                    required
+                                >
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/>
+                                <path d="M10 7v3l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            <input 
+                                type="text" 
+                                id="username" 
+                                name="username" 
+                                placeholder="Choose a username"
+                                required
+                            >
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="email">Email Address</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M3 4h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5"/>
+                                <path d="M2 5l8 6 8-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            <input 
+                                type="email" 
+                                id="email" 
+                                name="email" 
+                                placeholder="student@email.com"
+                                required
+                            >
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <rect x="4" y="9" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                                <path d="M7 9V6a3 3 0 0 1 6 0v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            <input 
+                                type="password" 
+                                id="password" 
+                                name="password" 
+                                placeholder="Create a strong password"
+                                required
+                            >
+                            <button type="button" class="toggle-password" id="togglePassword">
+                                <svg class="eye-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                    <path d="M10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" stroke="currentColor" stroke-width="1.5"/>
+                                    <path d="M10 3C5 3 2 10 2 10s3 7 8 7 8-7 8-7-3-7-8-7z" stroke="currentColor" stroke-width="1.5"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="password-strength" id="passwordStrength">
+                            <div class="strength-bar">
+                                <div class="strength-fill" id="strengthFill"></div>
+                            </div>
+                            <p class="strength-text" id="strengthText">Password strength</p>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="confirmPassword">Confirm Password</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <rect x="4" y="9" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                                <path d="M7 9V6a3 3 0 0 1 6 0v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            <input 
+                                type="password" 
+                                id="confirmPassword" 
+                                name="confirmPassword" 
+                                placeholder="Re-enter your password"
+                                required
+                            >
+                            <button type="button" class="toggle-password" id="toggleConfirmPassword">
+                                <svg class="eye-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                    <path d="M10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" stroke="currentColor" stroke-width="1.5"/>
+                                    <path d="M10 3C5 3 2 10 2 10s3 7 8 7 8-7 8-7-3-7-8-7z" stroke="currentColor" stroke-width="1.5"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="agreeTerms" required>
+                            <span>I agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a></span>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn-register">
+                        <span>Create Account</span>
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M5 10h10M11 6l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                </form>
+
+                <div class="form-footer">
+                    <p>Already have an account? <a href="index.html">Login here</a></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="..//JS/StudentRegistration.js"></script>
+</body>
+</html>
