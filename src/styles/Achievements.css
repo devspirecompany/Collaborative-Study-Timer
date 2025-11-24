@@ -1,149 +1,363 @@
-.achievements-section {
+/* Recently Unlocked Section */
+.recently-unlocked-section {
+  margin-bottom: 3rem;
+  padding-bottom: 2rem;
+  border-bottom: 2px solid var(--border);
+}
+
+.recently-unlocked-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 2rem;
+}
+
+.recently-unlocked-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.recently-unlocked-card {
+  background: var(--bg-card);
+  border: 3px solid;
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  transition: all 0.3s ease;
+  min-height: 280px;
+}
+
+.recently-unlocked-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Tier-specific highlighting */
+.recently-unlocked-card.gold-highlight {
+  border-color: #f59e0b;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(251, 191, 36, 0.05));
+}
+
+.recently-unlocked-card.silver-highlight {
+  border-color: #94a3b8;
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.15), rgba(203, 213, 225, 0.05));
+}
+
+.recently-unlocked-card.platinum-highlight {
+  border-color: #8b5cf6;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(167, 139, 250, 0.05));
+}
+
+.recently-unlocked-icon {
+  width: 120px;
+  height: 120px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(14, 165, 233, 0.2));
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 4rem;
+  margin: 1rem 0;
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
+}
+
+.gold-highlight .recently-unlocked-icon {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(251, 191, 36, 0.2));
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.4);
+}
+
+.silver-highlight .recently-unlocked-icon {
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.3), rgba(203, 213, 225, 0.2));
+  box-shadow: 0 8px 24px rgba(148, 163, 184, 0.4);
+}
+
+.platinum-highlight .recently-unlocked-icon {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(167, 139, 250, 0.2));
+  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
+}
+
+.recently-unlocked-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 1rem 0 0.5rem;
+}
+
+.recently-unlocked-desc {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+  flex-grow: 1;
+}
+
+.recently-unlocked-date {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: rgba(16, 185, 129, 0.1);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--success);
+  margin-top: auto;
+}
+
+.unlock-badge {
+  font-size: 1.1rem;
+}
+
+/* Recently Unlocked Empty State */
+.recently-unlocked-empty {
+  background: var(--bg-card);
+  border: 2px dashed var(--border);
+  border-radius: 16px;
+  padding: 4rem 2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.empty-icon {
+  font-size: 5rem;
+  opacity: 0.3;
+  margin-bottom: 1rem;
+}
+
+.empty-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.empty-message {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 500px;
+}
+
+/* Milestones Section */
+.milestones-section {
   margin-bottom: 3rem;
 }
 
 .section-title {
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin-bottom: 1.5rem;
-  color: var(--text-primary);
-}
-
-.achievements-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1.5rem;
+  font-size: 1.75rem;
+  font-weight: 700;
   margin-bottom: 2rem;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
-.achievement-card {
+.title-icon {
+  font-size: 2rem;
+}
+
+/* Milestones Grid */
+.milestones-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+/* Milestone Card */
+.milestone-card {
   background: var(--bg-card);
   border: 2px solid var(--border);
-  border-radius: 12px;
-  padding: 1.5rem;
+  border-radius: 16px;
+  padding: 2rem;
   display: flex;
-  gap: 1rem;
-  transition: all 0.3s;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  transition: all 0.3s ease;
+  overflow: hidden;
 }
 
-.achievement-card.unlocked {
-  border-color: var(--success);
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05));
+.milestone-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
 
-.achievement-card.locked {
-  opacity: 0.7;
+.milestone-card.unlocked {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(16, 185, 129, 0.02));
 }
 
-.achievement-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+.milestone-card.locked {
+  opacity: 0.8;
 }
 
-.achievement-icon {
-  font-size: 3rem;
-  width: 80px;
-  height: 80px;
+/* Tier Badge */
+.milestone-badge {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.milestone-badge.silver {
+  background: linear-gradient(135deg, #94a3b8, #cbd5e1);
+  color: #1e293b;
+}
+
+.milestone-badge.gold {
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: #78350f;
+}
+
+.milestone-badge.platinum {
+  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+  color: #ffffff;
+}
+
+/* Icon Wrapper */
+.milestone-icon-wrapper {
+  margin: 1.5rem 0;
+}
+
+.milestone-icon {
+  width: 100px;
+  height: 100px;
+  background: var(--bg-input);
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 3rem;
+  transition: all 0.3s ease;
+}
+
+.milestone-card.unlocked .milestone-icon {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(14, 165, 233, 0.2));
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
+}
+
+.milestone-icon.locked-icon {
   background: var(--bg-input);
-  border-radius: 12px;
-  flex-shrink: 0;
+  font-size: 2.5rem;
+  opacity: 0.4;
 }
 
-.achievement-card.unlocked .achievement-icon {
-  background: var(--success);
-  color: white;
-}
-
-.locked-icon {
-  font-size: 2rem;
-  opacity: 0.5;
-}
-
-.achievement-content {
-  flex: 1;
-}
-
-.achievement-title {
+/* Title and Description */
+.milestone-title {
   font-size: 1.25rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
+  font-weight: 700;
   color: var(--text-primary);
-}
-
-.achievement-description {
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-  margin-bottom: 1rem;
-  line-height: 1.5;
-}
-
-.achievement-progress {
-  margin-top: 1rem;
-}
-
-.progress-bar {
-  width: 100%;
-  height: 8px;
-  background: var(--bg-input);
-  border-radius: 4px;
-  overflow: hidden;
   margin-bottom: 0.5rem;
 }
 
-.progress-fill {
-  height: 100%;
-  background: var(--gradient-1);
-  transition: width 0.3s ease;
+.milestone-description {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 1.5rem;
+  min-height: 2.5rem;
 }
 
-.achievement-card.unlocked .progress-fill {
-  background: var(--success);
+/* Unlocked Status */
+.milestone-unlocked {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(16, 185, 129, 0.1);
+  border-radius: 8px;
+  width: 100%;
+  justify-content: center;
 }
 
-.progress-text {
+.unlock-icon {
+  font-size: 1.2rem;
+}
+
+.unlock-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--success);
+}
+
+/* Progress Section */
+.milestone-progress-section {
+  width: 100%;
+}
+
+.progress-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.progress-label {
   font-size: 0.85rem;
   color: var(--text-muted);
-}
-
-.achievement-date {
-  font-size: 0.85rem;
-  color: var(--success);
-  margin-top: 0.5rem;
   font-weight: 500;
 }
 
-.achievements-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.5rem;
-  margin-top: 2rem;
-}
-
-.stat-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.5rem;
-  text-align: center;
-}
-
-.stat-value {
-  font-size: 2.5rem;
+.progress-value {
+  font-size: 0.95rem;
   font-weight: 700;
   color: var(--primary-light);
-  margin-bottom: 0.5rem;
 }
 
-.stat-label {
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.streak-value {
+  color: #f59e0b;
 }
 
+/* Progress Bar */
+.progress-bar-wrapper {
+  width: 100%;
+  height: 3px;
+  background: var(--bg-input);
+  border-radius: 1.5px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--gradient-1);
+  border-radius: 1.5px;
+  transition: width 0.8s ease;
+}
+
+.milestone-card.unlocked .progress-bar-fill {
+  background: var(--success);
+}
+
+/* Gold tier special styling */
+.milestone-card:has(.milestone-badge.gold) .progress-bar-fill {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.milestone-card:has(.milestone-badge.gold).unlocked {
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+/* Platinum tier special styling */
+.milestone-card:has(.milestone-badge.platinum).unlocked {
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+/* Loading State */
 .loading-state {
   display: flex;
   flex-direction: column;
@@ -168,3 +382,124 @@
   }
 }
 
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .recently-unlocked-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+
+  .milestones-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1.25rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .recently-unlocked-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recently-unlocked-card {
+    padding: 2rem 1.5rem;
+  }
+
+  .recently-unlocked-icon {
+    width: 100px;
+    height: 100px;
+    font-size: 3.5rem;
+  }
+
+  .recently-unlocked-title {
+    font-size: 1.5rem;
+  }
+
+  .recently-unlocked-empty {
+    padding: 3rem 1.5rem;
+  }
+
+  .empty-icon {
+    font-size: 4rem;
+  }
+
+  .empty-title {
+    font-size: 1.25rem;
+  }
+
+  .empty-message {
+    font-size: 0.95rem;
+  }
+
+  .milestones-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .milestone-card {
+    padding: 1.5rem;
+  }
+
+  .milestone-icon {
+    width: 80px;
+    height: 80px;
+    font-size: 2.5rem;
+  }
+
+  .section-title {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .recently-unlocked-card {
+    padding: 1.5rem 1rem;
+    min-height: 240px;
+  }
+
+  .recently-unlocked-icon {
+    width: 80px;
+    height: 80px;
+    font-size: 3rem;
+  }
+
+  .recently-unlocked-name {
+    font-size: 1.25rem;
+  }
+
+  .recently-unlocked-desc {
+    font-size: 0.9rem;
+  }
+
+  .recently-unlocked-empty {
+    padding: 2rem 1rem;
+  }
+
+  .empty-icon {
+    font-size: 3.5rem;
+  }
+
+  .empty-title {
+    font-size: 1.1rem;
+  }
+
+  .empty-message {
+    font-size: 0.875rem;
+  }
+
+  .milestone-card {
+    padding: 1.25rem;
+  }
+
+  .milestone-icon {
+    width: 70px;
+    height: 70px;
+    font-size: 2rem;
+  }
+
+  .milestone-title {
+    font-size: 1.1rem;
+  }
+
+  .milestone-description {
+    font-size: 0.875rem;
+  }
+}

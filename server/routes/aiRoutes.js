@@ -590,18 +590,52 @@ router.post('/generate-questions', async (req, res) => {
       // Extract JSON from response (remove markdown code blocks if present)
       let jsonString = aiResponse;
       // Remove markdown code blocks
-      jsonString = jsonString.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-      // Extract JSON array
-      const jsonMatch = jsonString.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        questions = JSON.parse(jsonMatch[0]);
-        method = 'gemini-ai';
-        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`✅ Successfully generated ${questions.length} questions using Gemini AI (took ${duration}s)`);
-      } else {
-        console.error('❌ Could not parse JSON from Gemini response');
+      jsonString = jsonString.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      // Extract JSON array - try multiple patterns
+      let jsonMatch = jsonString.match(/\[[\s\S]*\]/);
+      
+      // If no array found, try to find JSON object with questions array
+      if (!jsonMatch) {
+        const objectMatch = jsonString.match(/\{[\s\S]*"questions"[\s\S]*\[[\s\S]*\][\s\S]*\}/);
+        if (objectMatch) {
+          try {
+            const parsed = JSON.parse(objectMatch[0]);
+            if (parsed.questions && Array.isArray(parsed.questions)) {
+              questions = parsed.questions;
+              method = 'gemini-ai';
+              const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+              console.log(`✅ Successfully generated ${questions.length} questions using Gemini AI (took ${duration}s)`);
+            }
+          } catch (e) {
+            // Continue to try array pattern
+          }
+        }
+      }
+      
+      // Try parsing the array directly
+      if (questions.length === 0 && jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            questions = parsed;
+            method = 'gemini-ai';
+            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+            console.log(`✅ Successfully generated ${questions.length} questions using Gemini AI (took ${duration}s)`);
+          } else {
+            throw new Error('Parsed array is empty or invalid');
+          }
+        } catch (parseError) {
+          console.error('❌ JSON parse error:', parseError.message);
+          console.error('Attempted to parse:', jsonMatch[0].substring(0, 200));
+          throw new Error(`Could not parse JSON from AI response: ${parseError.message}`);
+        }
+      }
+      
+      // If still no questions, throw error
+      if (!questions.length) {
+        console.error('❌ Could not extract questions from Gemini response');
         console.error('Raw response (first 500 chars):', aiResponse.substring(0, 500));
-        throw new Error('Could not parse JSON from AI response');
+        throw new Error('Could not parse JSON from AI response - no valid questions array found');
       }
       }
     } catch (geminiError) {

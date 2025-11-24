@@ -313,21 +313,40 @@ body {
 }
 
 .checkbox-label {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
+    display: flex !important;
+    align-items: center !important;
+    gap: 1rem !important;
     cursor: pointer;
     color: var(--text-secondary);
     font-size: 0.875rem;
+    line-height: 1.5;
+    margin: 0;
+    padding: 0;
 }
 
 .checkbox-label input[type="checkbox"] {
-    width: 1.125rem;
-    height: 1.125rem;
+    width: 1.125rem !important;
+    height: 1.125rem !important;
+    min-width: 1.125rem !important;
+    max-width: 1.125rem !important;
     cursor: pointer;
     accent-color: var(--primary-light);
-    margin-top: 0.125rem;
-    flex-shrink: 0;
+    flex-shrink: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    vertical-align: middle;
+    align-self: center;
+    position: relative;
+    top: 0;
+}
+
+.checkbox-label span {
+    display: inline-block !important;
+    line-height: 1.5;
+    vertical-align: middle;
+    margin: 0;
+    padding: 0;
+    flex: 1;
 }
 
 .checkbox-label a {
@@ -453,5 +472,136 @@ body {
     
     .form-row {
         grid-template-columns: 1fr;
+    }
+}
+
+/* Success Modal Styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.success-modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 3rem;
+    max-width: 500px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    animation: slideUp 0.4s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(30px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.modal-icon {
+    margin: 0 auto 1.5rem;
+    animation: scaleIn 0.5s ease 0.2s backwards;
+}
+
+@keyframes scaleIn {
+    from {
+        transform: scale(0);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.success-modal h2 {
+    font-size: 1.75rem;
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+    font-weight: 700;
+}
+
+.welcome-message {
+    font-size: 1.125rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.welcome-message strong {
+    color: var(--primary-light);
+    font-weight: 600;
+}
+
+.redirect-message {
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    margin-bottom: 2rem;
+}
+
+.loading-bar {
+    width: 100%;
+    height: 4px;
+    background: var(--bg-input);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 1.5rem;
+}
+
+.loading-fill {
+    height: 100%;
+    background: var(--gradient-1);
+    border-radius: 2px;
+    animation: loading 2.5s ease-in-out;
+}
+
+@keyframes loading {
+    from {
+        width: 0%;
+    }
+    to {
+        width: 100%;
+    }
+}
+
+@media (max-width: 768px) {
+    .success-modal {
+        padding: 2rem;
+        width: 85%;
+    }
+    
+    .success-modal h2 {
+        font-size: 1.5rem;
+    }
+    
+    .modal-icon svg {
+        width: 48px;
+        height: 48px;
     }
 }

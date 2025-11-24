@@ -103,12 +103,17 @@ router.post('/join', async (req, res) => {
       });
     }
 
-    // Check if user is already in room
-    const existingParticipant = studyRoom.participants.find(
+    // Check if user is already in room by userId
+    const existingParticipantById = studyRoom.participants.find(
       p => p.userId === userId.toString()
     );
 
-    if (existingParticipant) {
+    if (existingParticipantById) {
+      // Update username in case it changed
+      if (existingParticipantById.username !== username) {
+        existingParticipantById.username = username;
+        await studyRoom.save();
+      }
       return res.json({
         success: true,
         message: 'Already in room',
@@ -116,7 +121,23 @@ router.post('/join', async (req, res) => {
       });
     }
 
-    // Add participant
+    // Check if user exists by username (in case userId changed between sessions)
+    const existingParticipantByUsername = studyRoom.participants.find(
+      p => p.username === username
+    );
+
+    if (existingParticipantByUsername) {
+      // Update userId to match current session (same user, different session)
+      existingParticipantByUsername.userId = userId.toString();
+      await studyRoom.save();
+      return res.json({
+        success: true,
+        message: 'Rejoined room successfully',
+        room: studyRoom
+      });
+    }
+
+    // Add new participant
     studyRoom.participants.push({
       userId: userId.toString(),
       username: username,
@@ -135,6 +156,47 @@ router.post('/join', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error joining study room',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/study-rooms
+ * Get all active study rooms
+ */
+router.get('/', async (req, res) => {
+  try {
+    const activeRooms = await StudyRoom.find({ 
+      isActive: true,
+      expiresAt: { $gt: new Date() } // Only rooms that haven't expired
+    })
+    .select('roomCode roomName hostId hostName participants createdAt')
+    .sort({ createdAt: -1 }) // Most recent first
+    .limit(50); // Limit to 50 most recent rooms
+
+    // Format rooms for frontend
+    const formattedRooms = activeRooms.map(room => ({
+      id: room._id.toString(),
+      roomCode: room.roomCode,
+      name: room.roomName || 'Study Room',
+      roomName: room.roomName || 'Study Room',
+      host: room.hostName,
+      hostName: room.hostName,
+      hostId: room.hostId,
+      participants: room.participants ? room.participants.length : 0,
+      createdAt: room.createdAt
+    }));
+
+    res.json({
+      success: true,
+      rooms: formattedRooms
+    });
+  } catch (error) {
+    console.error('Error fetching study rooms:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching study rooms',
       error: error.message
     });
   }
@@ -711,16 +773,51 @@ router.post('/:roomCode/share-file', async (req, res) => {
       });
     }
 
+    // Normalize userId for comparison (handle both string and ObjectId)
+    const normalizedUserId = userId.toString();
+    const normalizedHostId = studyRoom.hostId.toString();
+    
     // Check if user is a participant
     const isParticipant = studyRoom.participants.some(
-      p => p.userId === userId.toString()
+      p => p.userId.toString() === normalizedUserId
     );
+    
+    // Check if user is the host
+    const isHost = normalizedHostId === normalizedUserId;
 
+    console.log(`🔍 Share file check - Room: ${roomCode}, User: ${normalizedUserId}`);
+    console.log(`   Host ID: ${normalizedHostId}, Is Host: ${isHost}`);
+    console.log(`   Participants: ${studyRoom.participants.map(p => p.userId.toString()).join(', ')}`);
+    console.log(`   Is Participant: ${isParticipant}`);
+
+    // Allow host to share files even if not in participants list
+    // Also auto-add host to participants if missing
     if (!isParticipant) {
-      return res.status(403).json({
-        success: false,
-        message: 'You must be a participant to share files'
-      });
+      if (isHost) {
+        // Host is allowed, but add them to participants for consistency
+        console.log(`✅ User is host, allowing file share and adding to participants`);
+        const hostAlreadyInList = studyRoom.participants.some(
+          p => p.userId.toString() === normalizedUserId
+        );
+        if (!hostAlreadyInList) {
+          studyRoom.participants.push({
+            userId: normalizedUserId,
+            username: username,
+            joinedAt: new Date()
+          });
+          await studyRoom.save();
+          console.log(`✅ Added host to participants list`);
+        }
+      } else {
+        // Not a participant and not the host
+        console.log(`❌ User is not a participant and not the host`);
+        return res.status(403).json({
+          success: false,
+          message: 'You must be a participant to share files'
+        });
+      }
+    } else {
+      console.log(`✅ User is a participant, allowing file share`);
     }
 
     // Check if file is already shared

@@ -11,21 +11,13 @@ const ProductivityTracker = () => {
   const [productivityData, setProductivityData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('week');
+  const [trackerView, setTrackerView] = useState('day'); // day, month, year
   const [userId] = useState('demo-user');
   const [showTutorial, setShowTutorial] = useState(false);
 
   useEffect(() => {
     fetchProductivityData();
   }, [period]);
-
-  // Show tutorial immediately when feature is accessed
-  useEffect(() => {
-    if (!hasSeenTutorial('productivityTracker')) {
-      // Show tutorial immediately when component mounts (when feature is clicked)
-      setShowTutorial(true);
-      // Mark as seen only after user closes it (handled in onClose)
-    }
-  }, []);
 
   const fetchProductivityData = async () => {
     try {
@@ -42,6 +34,42 @@ const ProductivityTracker = () => {
       setLoading(false);
     }
   };
+
+  // Generate tracker data based on selected view
+  const getTrackerData = () => {
+    if (trackerView === 'day') {
+      // Last 7 days
+      return Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        return {
+          label: date.toLocaleDateString('en-US', { weekday: 'short' }),
+          hours: Math.random() * 5 + 1, // Mock data: 1-6 hours
+          fullDate: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        };
+      });
+    } else if (trackerView === 'month') {
+      // Last 4 weeks
+      return Array.from({ length: 4 }, (_, i) => ({
+        label: `Week ${i + 1}`,
+        hours: Math.random() * 30 + 10, // Mock data: 10-40 hours
+      }));
+    } else {
+      // Last 12 months
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const currentMonth = new Date().getMonth();
+      return Array.from({ length: 12 }, (_, i) => {
+        const monthIndex = (currentMonth - 11 + i + 12) % 12;
+        return {
+          label: months[monthIndex],
+          hours: Math.random() * 100 + 20, // Mock data: 20-120 hours
+        };
+      });
+    }
+  };
+
+  const trackerData = getTrackerData();
+  const maxTrackerHours = Math.max(...trackerData.map(d => d.hours), 1);
 
   if (loading) {
     return (
@@ -101,41 +129,6 @@ const ProductivityTracker = () => {
             <p className="empty-state-message">
               You haven't started any study sessions yet. Begin your productivity journey today!
             </p>
-            
-            <div className="ai-getting-started">
-              <div className="ai-badge">🤖 AI</div>
-              <h3>AI Recommendations to Get Started:</h3>
-              <ul className="getting-started-tips">
-                <li>
-                  <span className="tip-icon">⏱️</span>
-                  <div>
-                    <strong>Start with Study Timer</strong>
-                    <p>Use the AI-powered Study Timer to begin your first focused session</p>
-                  </div>
-                </li>
-                <li>
-                  <span className="tip-icon">📚</span>
-                  <div>
-                    <strong>Upload Study Materials</strong>
-                    <p>Add files to My Files to track what subjects you're studying</p>
-                  </div>
-                </li>
-                <li>
-                  <span className="tip-icon">🎯</span>
-                  <div>
-                    <strong>Set Your Goals</strong>
-                    <p>Once you start studying, AI will suggest personalized goals based on your progress</p>
-                  </div>
-                </li>
-                <li>
-                  <span className="tip-icon">📊</span>
-                  <div>
-                    <strong>Track Your Progress</strong>
-                    <p>Come back here to see AI-powered insights and recommendations</p>
-                  </div>
-                </li>
-              </ul>
-            </div>
 
             <div className="empty-state-actions">
               <button 
@@ -148,6 +141,74 @@ const ProductivityTracker = () => {
                 </svg>
                 Start Your First Study Session
               </button>
+            </div>
+          </div>
+
+          {/* Study Time Tracker - Empty State */}
+          <div className="chart-card tracker-card">
+            <div className="card-header">
+              <h3 className="card-title">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '0.5rem' }}>
+                  <path d="M3 3v18h18"/>
+                  <rect x="7" y="10" width="3" height="8"/>
+                  <rect x="14" y="5" width="3" height="13"/>
+                </svg>
+                Study Time Tracker
+              </h3>
+              <div className="tracker-toggle">
+                <button
+                  className={`tracker-btn ${trackerView === 'day' ? 'active' : ''}`}
+                  onClick={() => setTrackerView('day')}
+                >
+                  Day
+                </button>
+                <button
+                  className={`tracker-btn ${trackerView === 'month' ? 'active' : ''}`}
+                  onClick={() => setTrackerView('month')}
+                >
+                  Month
+                </button>
+                <button
+                  className={`tracker-btn ${trackerView === 'year' ? 'active' : ''}`}
+                  onClick={() => setTrackerView('year')}
+                >
+                  Year
+                </button>
+              </div>
+            </div>
+            <div className="tracker-subtitle">
+              {trackerView === 'day' && 'Hours studied per day (Last 7 days)'}
+              {trackerView === 'month' && 'Hours studied per week (Last 4 weeks)'}
+              {trackerView === 'year' && 'Hours studied per month (Last 12 months)'}
+            </div>
+            <div className="tracker-chart">
+              {trackerData.map((data, index) => (
+                <div key={index} className="tracker-bar-wrapper">
+                  <div className="tracker-bar-container">
+                    <div
+                      className="tracker-bar empty-bar"
+                      style={{
+                        height: '20px',
+                        opacity: 0.3,
+                        transition: `all 0.8s ease ${index * 50}ms`
+                      }}
+                    >
+                      <div className="tracker-tooltip">
+                        {trackerView === 'day' && data.fullDate && <div className="tooltip-date">{data.fullDate}</div>}
+                        <div className="tooltip-hours">0h</div>
+                      </div>
+                    </div>
+                    <div className="tracker-value" style={{ opacity: 0.5 }}>0h</div>
+                  </div>
+                  <div className="tracker-label">{data.label}</div>
+                </div>
+              ))}
+            </div>
+            <div className="tracker-legend">
+              <div className="legend-item">
+                <div className="legend-color"></div>
+                <span>Study Hours (No data yet)</span>
+              </div>
             </div>
           </div>
         </main>
@@ -268,7 +329,7 @@ const ProductivityTracker = () => {
           <div className="progress-chart">
             {productivityData.weeklyData.map((data, index) => (
               <div key={data.day} className="progress-bar-wrapper">
-                <div className="progress-bar" style={{ height: '200px' }}>
+                <div className="progress-bar" style={{ height: '120px' }}>
                   <div
                     className="progress-fill"
                     style={{
@@ -393,6 +454,73 @@ const ProductivityTracker = () => {
                   {((productivityData.totalStudyTime / productivityData.goals.weekly) * 100).toFixed(0)}% of weekly goal
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Study Time Tracker */}
+        <div className="chart-card tracker-card">
+          <div className="card-header">
+            <h3 className="card-title">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '0.5rem' }}>
+                <path d="M3 3v18h18"/>
+                <rect x="7" y="10" width="3" height="8"/>
+                <rect x="14" y="5" width="3" height="13"/>
+              </svg>
+              Study Time Tracker
+            </h3>
+            <div className="tracker-toggle">
+              <button
+                className={`tracker-btn ${trackerView === 'day' ? 'active' : ''}`}
+                onClick={() => setTrackerView('day')}
+              >
+                Day
+              </button>
+              <button
+                className={`tracker-btn ${trackerView === 'month' ? 'active' : ''}`}
+                onClick={() => setTrackerView('month')}
+              >
+                Month
+              </button>
+              <button
+                className={`tracker-btn ${trackerView === 'year' ? 'active' : ''}`}
+                onClick={() => setTrackerView('year')}
+              >
+                Year
+              </button>
+            </div>
+          </div>
+          <div className="tracker-subtitle">
+            {trackerView === 'day' && 'Hours studied per day (Last 7 days)'}
+            {trackerView === 'month' && 'Hours studied per week (Last 4 weeks)'}
+            {trackerView === 'year' && 'Hours studied per month (Last 12 months)'}
+          </div>
+          <div className="tracker-chart">
+            {trackerData.map((data, index) => (
+              <div key={index} className="tracker-bar-wrapper">
+                <div className="tracker-bar-container">
+                  <div
+                    className="tracker-bar"
+                    style={{
+                      height: `${(data.hours / maxTrackerHours) * 100}%`,
+                      transition: `height 0.8s ease ${index * 50}ms`
+                    }}
+                  >
+                    <div className="tracker-tooltip">
+                      {trackerView === 'day' && data.fullDate && <div className="tooltip-date">{data.fullDate}</div>}
+                      <div className="tooltip-hours">{data.hours.toFixed(1)}h</div>
+                    </div>
+                  </div>
+                  <div className="tracker-value">{data.hours.toFixed(1)}h</div>
+                </div>
+                <div className="tracker-label">{data.label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="tracker-legend">
+            <div className="legend-item">
+              <div className="legend-color"></div>
+              <span>Study Hours</span>
             </div>
           </div>
         </div>

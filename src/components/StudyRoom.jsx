@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
-import { getStudyRoom, leaveStudyRoom, controlStudyTimer, startStudyRoomQuiz, submitQuizAnswer, nextQuizQuestion, endStudyRoomQuiz, shareFileInRoom, removeSharedFile, sendChatMessage, setRoomDocument, clearRoomDocument, setRoomReviewer } from '../services/apiService';
-import { getFiles } from '../services/apiService';
+import { getStudyRoom, joinStudyRoom, leaveStudyRoom, controlStudyTimer, startStudyRoomQuiz, submitQuizAnswer, nextQuizQuestion, endStudyRoomQuiz, shareFileInRoom, removeSharedFile, sendChatMessage, setRoomDocument, clearRoomDocument, setRoomReviewer } from '../services/apiService';
+import { getFiles, createFile, getFolders, createFolder } from '../services/apiService';
 import { generateQuestionsFromFile, createReviewerFromFile } from '../services/aiService';
 import '../styles/StudyRoom.css';
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
@@ -15,11 +15,25 @@ const StudyRoom = () => {
   const [room, setRoom] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [userId] = useState('demo-user');
-  const [username] = useState('Player1');
+  
+  // Get user data from localStorage
+  const [userData] = useState(() => {
+    try {
+      const stored = localStorage.getItem('currentUser');
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+      return null;
+    }
+  });
+  
+  const userId = userData?._id || userData?.id || 'demo-user';
+  const username = userData?.username || userData?.firstName || 'Player1';
   const [copiedCode, setCopiedCode] = useState(false);
-  const isHost = location.state?.isHost || false;
   const timerIntervalRef = useRef(null);
+  
+  // Check if user is host from location state or room data
+  const isHost = location.state?.isHost || (room?.hostId?.toString() === userId.toString());
   const [localTimeRemaining, setLocalTimeRemaining] = useState(0);
   
   // Quiz states
@@ -38,6 +52,16 @@ const StudyRoom = () => {
   const [showShareFileModal, setShowShareFileModal] = useState(false);
   const [isSharingFile, setIsSharingFile] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+  
+  // File upload states
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadFolder, setUploadFolder] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [folders, setFolders] = useState([]);
+  const [showQuickCreateFolder, setShowQuickCreateFolder] = useState(false);
+  const [quickFolderName, setQuickFolderName] = useState('');
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [showMyFilesList, setShowMyFilesList] = useState(false);
   
   // Document viewer states
   const [viewingFile, setViewingFile] = useState(null);
@@ -68,6 +92,25 @@ const StudyRoom = () => {
       try {
         const response = await getStudyRoom(roomCode);
         if (response.success) {
+          // Check if user is a participant or host
+          const isParticipant = response.room.participants?.some(
+            p => p.userId.toString() === userId.toString()
+          );
+          const isHost = response.room.hostId?.toString() === userId.toString();
+          
+          // Auto-join if not already a participant (but not if they're the host who should already be in)
+          if (!isParticipant && !isHost) {
+            console.log('🔄 User not in participants, auto-joining room...');
+            try {
+              const joinResponse = await joinStudyRoom(roomCode, userId, username);
+              if (joinResponse.success) {
+                console.log('✅ Auto-joined room successfully');
+              }
+            } catch (joinError) {
+              console.error('⚠️ Auto-join failed (user may need to join manually):', joinError);
+            }
+          }
+          
           setRoom(response.room);
           setError('');
           
@@ -252,12 +295,33 @@ const StudyRoom = () => {
   // Load files for quiz selection
   const loadFiles = async () => {
     try {
-      const response = await getFiles(userId);
+      console.log('📂 Loading files for user:', userId);
+      let response = await getFiles(userId);
+      
+      // If no files found with current userId, also check for 'demo-user' files
+      // (for backward compatibility with files uploaded before userId fix)
+      if (response.success && (!response.files || response.files.length === 0) && userId !== 'demo-user') {
+        console.log('⚠️ No files found for current userId, checking demo-user files...');
+        const demoResponse = await getFiles('demo-user');
+        if (demoResponse.success && demoResponse.files && demoResponse.files.length > 0) {
+          console.log(`✅ Found ${demoResponse.files.length} files from demo-user, using those`);
+          response = demoResponse;
+        }
+      }
+      
       if (response.success && response.files) {
+        console.log(`✅ Loaded ${response.files.length} files from database`);
         setFiles(response.files);
+        return response.files;
+      } else {
+        console.warn('⚠️ No files found or response unsuccessful');
+        setFiles([]);
+        return [];
       }
     } catch (error) {
-      console.error('Error loading files:', error);
+      console.error('❌ Error loading files:', error);
+      setFiles([]);
+      return [];
     }
   };
 
@@ -405,22 +469,243 @@ const StudyRoom = () => {
     }
   }, [room?.chatMessages, showChat]);
 
+  // Load files and folders when share file modal opens
+  useEffect(() => {
+    if (showShareFileModal) {
+      console.log('📂 Share File modal opened, loading files and folders...');
+      loadFolders();
+      loadFiles();
+    }
+  }, [showShareFileModal]);
+
   // Share file in room
   const handleShareFile = async (fileId) => {
+    if (isSharingFile) return;
+    
     setIsSharingFile(true);
     try {
+      console.log(`📤 Sharing file in room: ${roomCode}, fileId: ${fileId}`);
       const response = await shareFileInRoom(roomCode, userId, username, fileId);
       if (response.success) {
+        // Success - room will update via polling
+        const fileName = files.find(f => f._id === fileId)?.fileName || 'File';
+        console.log(`✅ Successfully shared file in database: ${fileName}`);
+        // Don't close modal here if called from upload (it will close after upload)
+        // Only close if called directly (not from upload flow)
+        if (!isUploading) {
         setShowShareFileModal(false);
-        // Room will update via polling
+        }
+        return true;
       } else {
-        alert(response.message || 'Failed to share file');
+        console.error('❌ Failed to share file:', response.message);
+        alert(response.message || 'Failed to share file. Please try again.');
+        return false;
       }
     } catch (error) {
-      console.error('Error sharing file:', error);
-      alert('Failed to share file');
+      console.error('❌ Error sharing file:', error);
+      alert(`Failed to share file: ${error.message || 'Please check your connection and try again.'}`);
+      return false;
     } finally {
       setIsSharingFile(false);
+    }
+  };
+
+  // Load folders
+  const loadFolders = async () => {
+    try {
+      const response = await getFolders(userId);
+      if (response.success && response.folders) {
+        setFolders(response.folders || []);
+        return response.folders.map(f => f.subject || f.folderName).filter(Boolean);
+      }
+      return [];
+    } catch (error) {
+      console.error('Error loading folders:', error);
+      return [];
+    }
+  };
+
+  // Quick create folder
+  const handleQuickCreateFolder = async () => {
+    if (!quickFolderName.trim()) {
+      alert('Please enter a folder name');
+      return;
+    }
+
+    setIsCreatingFolder(true);
+    try {
+      console.log('📁 Creating folder:', quickFolderName.trim(), 'for user:', userId);
+      const response = await createFolder({
+        userId: userId,
+        folderName: quickFolderName.trim()
+      });
+      if (response.success) {
+        console.log('✅ Folder created successfully:', response.folder);
+        setUploadFolder(quickFolderName.trim());
+        setQuickFolderName('');
+        setShowQuickCreateFolder(false);
+        await loadFolders();
+        await loadFiles();
+      } else {
+        console.error('❌ Folder creation failed:', response.message);
+        alert(response.message || 'Failed to create folder');
+      }
+    } catch (error) {
+      console.error('❌ Error creating folder:', error);
+      // Show more detailed error message
+      const errorMessage = error.message || error.response?.message || 'Failed to create folder. Please check your connection and try again.';
+      alert(errorMessage);
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  };
+
+  // Handle file upload
+  const handleUploadFile = async () => {
+    if (!uploadFolder || !uploadFile) {
+      alert('Please select a folder and choose a file');
+      return;
+    }
+
+    const fileType = uploadFile.name.split('.').pop().toLowerCase();
+    
+    // Check if file type is supported
+    const supportedTypes = ['txt', 'md', 'docx'];
+    if (!supportedTypes.includes(fileType)) {
+      alert(`File type .${fileType} is not supported.\n\nSupported formats:\n• Word Document (.docx)\n• Text File (.txt)\n• Markdown (.md)`);
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    const maxSize = 10 * 1024 * 1024;
+    if (uploadFile.size > maxSize) {
+      alert(`File is too large (${(uploadFile.size / 1024 / 1024).toFixed(2)}MB). Maximum file size is 10MB.`);
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const reader = new FileReader();
+      
+      if (fileType === 'txt' || fileType === 'md') {
+        reader.readAsText(uploadFile);
+      } else if (fileType === 'docx') {
+        reader.readAsDataURL(uploadFile);
+      }
+      
+      reader.onload = async (e) => {
+        try {
+          let fileContent = e.target.result;
+          
+          const response = await createFile({
+            userId,
+            fileName: uploadFile.name,
+            fileContent: fileContent,
+            fileType: fileType,
+            subject: uploadFolder,
+            size: uploadFile.size
+          });
+
+          if (response.success) {
+            console.log('✅ File uploaded successfully:', response.file?._id || response.fileId);
+            
+            // Refresh files list to get the latest data
+            await loadFiles();
+            
+            // Auto-share the newly uploaded file
+            const fileIdToShare = response.file?._id || response.fileId;
+            if (fileIdToShare) {
+              console.log('📤 Auto-sharing file:', fileIdToShare);
+              // Small delay to ensure file is saved in database
+              setTimeout(async () => {
+                try {
+                  const shareSuccess = await handleShareFile(fileIdToShare);
+                  if (shareSuccess) {
+                    console.log('✅ File uploaded and shared successfully in database');
+                  }
+                  // Reset upload state after sharing (regardless of share success)
+                  setUploadFile(null);
+                  setUploadFolder(null);
+                  setShowQuickCreateFolder(false);
+                  setQuickFolderName('');
+                  setIsUploading(false);
+                  // Close modal after successful upload and share
+                  setShowShareFileModal(false);
+                } catch (error) {
+                  console.error('❌ Error auto-sharing file:', error);
+                  // File is already uploaded to database, just reset state
+                  setUploadFile(null);
+                  setUploadFolder(null);
+                  setShowQuickCreateFolder(false);
+                  setQuickFolderName('');
+                  setIsUploading(false);
+                  // Still close modal since file was uploaded successfully
+                  setShowShareFileModal(false);
+                }
+              }, 500);
+            } else {
+              // If file ID not in response, reload and find it
+              console.log('⚠️ File ID not in response, searching for file...');
+              await loadFiles();
+              setTimeout(async () => {
+                try {
+                  const updatedFilesResponse = await getFiles(userId);
+                  if (updatedFilesResponse.success && updatedFilesResponse.files) {
+                    const newFile = updatedFilesResponse.files.find(
+                      f => f.fileName === uploadFile.name && f.subject === uploadFolder
+                    );
+                    if (newFile) {
+                      console.log('📤 Found file, auto-sharing:', newFile._id);
+                      const shareSuccess = await handleShareFile(newFile._id);
+                      if (shareSuccess) {
+                        console.log('✅ File uploaded and shared successfully in database');
+                      }
+                    } else {
+                      console.warn('⚠️ Could not find uploaded file in list');
+                    }
+                  }
+                  // Reset upload state
+                  setUploadFile(null);
+                  setUploadFolder(null);
+                  setShowQuickCreateFolder(false);
+                  setQuickFolderName('');
+                  setIsUploading(false);
+                  // Close modal
+                  setShowShareFileModal(false);
+                } catch (error) {
+                  console.error('❌ Error finding and sharing file:', error);
+                  // Reset state even on error
+                  setUploadFile(null);
+                  setUploadFolder(null);
+                  setShowQuickCreateFolder(false);
+                  setQuickFolderName('');
+                  setIsUploading(false);
+                  // Still close modal since file was uploaded
+                  setShowShareFileModal(false);
+                }
+              }, 500);
+            }
+          } else {
+            console.error('❌ File upload failed:', response.message);
+            alert(response.message || 'Failed to upload file');
+            setIsUploading(false);
+          }
+        } catch (error) {
+          console.error('Error uploading file:', error);
+          alert(`Failed to upload file: ${error.message || 'Please try again'}`);
+          setIsUploading(false);
+        }
+      };
+      
+      reader.onerror = () => {
+        console.error('FileReader error');
+        alert('Error reading file. Please try again.');
+        setIsUploading(false);
+      };
+    } catch (error) {
+      console.error('Error in handleUploadFile:', error);
+      alert(`Failed to upload file: ${error.message || 'Unknown error'}`);
+      setIsUploading(false);
     }
   };
 
@@ -842,9 +1127,10 @@ const StudyRoom = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <h3>Shared Files ({room.sharedFiles?.length || 0})</h3>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     setShowShareFileModal(true);
-                    loadFiles();
+                    await loadFolders();
+                    await loadFiles();
                   }}
                   style={{
                     padding: '0.5rem 0.75rem',
@@ -898,6 +1184,7 @@ const StudyRoom = () => {
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                          {/* Use buttons - Only visible to host */}
                           {isHost && (
                             <>
                               <button
@@ -912,7 +1199,7 @@ const StudyRoom = () => {
                                   cursor: 'pointer',
                                   fontWeight: '600'
                                 }}
-                                title="Set as main document (raw file)"
+                                title="Set as main document (Host only)"
                               >
                                 📄 Use
                               </button>
@@ -930,7 +1217,7 @@ const StudyRoom = () => {
                                   fontWeight: '600',
                                   opacity: isGeneratingReviewer ? 0.6 : 1
                                 }}
-                                title="Generate AI reviewer and use"
+                                title="Generate AI reviewer and use (Host only)"
                               >
                                 {isGeneratingReviewer ? '⏳' : '🤖 AI Review'}
                               </button>
@@ -1449,92 +1736,1001 @@ const StudyRoom = () => {
 
         {/* Share File Modal */}
         {showShareFileModal && (
-          <div style={{
+          <div 
+            style={{
             position: 'fixed',
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
+              background: 'rgba(0, 0, 0, 0.75)',
+              backdropFilter: 'blur(4px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 1000
-          }}>
+              zIndex: 10000,
+              padding: '1rem'
+            }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !isSharingFile) {
+                setShowShareFileModal(false);
+              }
+            }}
+          >
+            <div 
+              style={{
+                background: 'var(--bg-card)',
+                borderRadius: '20px',
+                padding: '0',
+                maxWidth: '600px',
+                width: '100%',
+                maxHeight: '90vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+                border: '1px solid var(--border)',
+                overflow: 'hidden',
+                margin: '2rem auto'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div style={{
+                padding: '1.75rem 2rem',
+                borderBottom: '1px solid var(--border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(14, 165, 233, 0.05))'
+              }}>
+                <div style={{ flex: 1 }}>
             <div style={{
-              background: 'var(--bg-primary)',
-              borderRadius: '16px',
-              padding: '2rem',
-              maxWidth: '500px',
-              width: '90%',
-              maxHeight: '80vh',
-              overflow: 'auto'
-            }}>
-              <h2 style={{ marginBottom: '1.5rem', color: 'var(--text-primary)' }}>
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    marginBottom: '0.5rem'
+                  }}>
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, var(--primary), #0ea5e9)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                      </svg>
+                    </div>
+                    <h2 style={{ 
+                      margin: 0, 
+                      color: 'var(--text-primary)',
+                      fontSize: '1.5rem',
+                      fontWeight: '700',
+                      letterSpacing: '-0.02em'
+                    }}>
                 Share File in Room
               </h2>
-              <p style={{ marginBottom: '1.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                Select a file from your My Files to share with all participants in this room. Everyone can use shared files for quizzes.
-              </p>
-
-              <div style={{ maxHeight: '400px', overflow: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
-                {files.length === 0 ? (
-                  <p style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                    No files available. Please upload files first.
+                  </div>
+                  <p style={{ 
+                    margin: '0 0 0 3.25rem', 
+                    color: 'var(--text-secondary)', 
+                    fontSize: '0.875rem',
+                    lineHeight: '1.5',
+                    opacity: 0.9
+                  }}>
+                    Share files from your library or upload new ones to collaborate with your study group
                   </p>
-                ) : (
-                  files.map((file) => {
+                </div>
+                <button
+                  onClick={() => !isSharingFile && setShowShareFileModal(false)}
+                  disabled={isSharingFile}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-secondary)',
+                    cursor: isSharingFile ? 'not-allowed' : 'pointer',
+                    padding: '0.5rem',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.2s',
+                    width: '36px',
+                    height: '36px'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSharingFile) {
+                      e.currentTarget.style.background = 'var(--bg-input)';
+                      e.currentTarget.style.color = 'var(--text-primary)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = 'var(--text-secondary)';
+                  }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+
+              {/* My Files Button Section */}
+              <div style={{ 
+                padding: '1.5rem 2rem',
+                background: 'var(--bg-primary)',
+                borderBottom: '1px solid var(--border)',
+                flexShrink: 0
+              }}>
+                <button
+                  onClick={() => setShowMyFilesList(!showMyFilesList)}
+                  disabled={isSharingFile}
+                  style={{
+                    width: '100%',
+                    padding: '1rem 1.25rem',
+                    background: 'var(--bg-card)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '12px',
+                    cursor: isSharingFile ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '1rem',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSharingFile) {
+                      e.currentTarget.style.background = 'var(--bg-input)';
+                      e.currentTarget.style.borderColor = 'var(--primary)';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.2)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSharingFile) {
+                      e.currentTarget.style.background = 'var(--bg-card)';
+                      e.currentTarget.style.borderColor = 'var(--border)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                    }
+                  }}
+                >
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.875rem',
+                    flex: 1
+                  }}>
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, var(--primary), #0ea5e9)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1, textAlign: 'left' }}>
+                      <div style={{
+                        fontWeight: '600',
+                        fontSize: '0.95rem',
+                        marginBottom: '0.25rem',
+                        color: 'var(--text-primary)'
+                      }}>
+                        My Files
+                      </div>
+                      <div style={{
+                        fontSize: '0.8125rem',
+                        color: 'var(--text-secondary)',
+                        opacity: 0.85
+                      }}>
+                        {files.length} {files.length === 1 ? 'file' : 'files'} uploaded
+                      </div>
+                    </div>
+                  </div>
+                  <svg 
+                    width="20" 
+                    height="20" 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="var(--text-secondary)" 
+                    strokeWidth="2.5"
+                    style={{
+                      transform: showMyFilesList ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.25s ease',
+                      flexShrink: 0
+                    }}
+                  >
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+
+                {/* Expanded File List */}
+                {showMyFilesList && (
+                  <div style={{
+                    marginTop: '1rem',
+                    padding: '1rem',
+                    background: 'var(--bg-input)',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border)',
+                    maxHeight: '300px',
+                    overflowY: 'auto',
+                    overflowX: 'hidden'
+                  }}>
+                    {isSharingFile ? (
+                      <div style={{
+                        padding: '2rem',
+                        textAlign: 'center',
+                        color: 'var(--text-secondary)'
+                      }}>
+                        <div className="spinner" style={{ 
+                          width: '40px', 
+                          height: '40px', 
+                          margin: '0 auto 1rem',
+                          borderWidth: '3px',
+                          borderTopColor: 'var(--primary)'
+                        }}></div>
+                        <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: '500' }}>Sharing file...</p>
+                      </div>
+                    ) : files.length === 0 ? (
+                      <div style={{ 
+                        padding: '2rem', 
+                        textAlign: 'center', 
+                        color: 'var(--text-secondary)'
+                      }}>
+                        <p style={{ margin: 0, fontSize: '0.875rem', opacity: 0.8 }}>No files available. Upload files below or add them in My Files.</p>
+                      </div>
+                    ) : (() => {
+                      // Group files by folder/subject
+                      const filesByFolder = {};
+                      files.forEach(file => {
+                        const folder = file.subject || 'Uncategorized';
+                        if (!filesByFolder[folder]) {
+                          filesByFolder[folder] = [];
+                        }
+                        filesByFolder[folder].push(file);
+                      });
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                          {Object.entries(filesByFolder).map(([folderName, folderFiles]) => (
+                            <div key={folderName}>
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                marginBottom: '0.75rem',
+                                paddingBottom: '0.5rem',
+                                borderBottom: '1px solid var(--border)'
+                              }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" style={{ opacity: 0.8 }}>
+                                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                </svg>
+                                <span style={{
+                                  fontSize: '0.875rem',
+                                  fontWeight: '600',
+                                  color: 'var(--text-primary)'
+                                }}>
+                                  {folderName}
+                                </span>
+                                <span style={{
+                                  fontSize: '0.75rem',
+                                  color: 'var(--text-secondary)',
+                                  marginLeft: 'auto',
+                                  opacity: 0.7
+                                }}>
+                                  {folderFiles.length} {folderFiles.length === 1 ? 'file' : 'files'}
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                                {folderFiles.map((file) => {
                     const isAlreadyShared = room?.sharedFiles?.some(sf => sf.fileId === file._id);
                     return (
                       <button
                         key={file._id}
-                        onClick={() => !isAlreadyShared && handleShareFile(file._id)}
+                                      onClick={() => !isAlreadyShared && !isSharingFile && handleShareFile(file._id)}
                         disabled={isSharingFile || isAlreadyShared}
                         style={{
                           width: '100%',
-                          padding: '1rem',
-                          background: isAlreadyShared ? '#e0e0e0' : 'var(--bg-input)',
-                          color: isAlreadyShared ? '#999' : 'var(--text-primary)',
-                          border: 'none',
-                          borderBottom: '1px solid var(--border-color)',
+                                        padding: '0.875rem 1rem',
+                                        background: isAlreadyShared 
+                                          ? 'var(--bg-primary)' 
+                                          : 'var(--bg-card)',
+                                        color: isAlreadyShared 
+                                          ? 'var(--text-secondary)' 
+                                          : 'var(--text-primary)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '10px',
                           textAlign: 'left',
                           cursor: (isSharingFile || isAlreadyShared) ? 'not-allowed' : 'pointer',
-                          transition: 'background 0.2s'
-                        }}
-                      >
-                        <div style={{ fontWeight: '600' }}>{file.fileName}</div>
-                        <div style={{ fontSize: '0.85rem', opacity: 0.8, marginTop: '0.25rem' }}>
-                          {file.subject} • {file.fileType?.toUpperCase()}
+                                        transition: 'all 0.2s',
+                                        opacity: isAlreadyShared ? 0.65 : 1,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.75rem',
+                                        position: 'relative'
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        if (!isSharingFile && !isAlreadyShared) {
+                                          e.currentTarget.style.background = 'linear-gradient(135deg, var(--primary), #0ea5e9)';
+                                          e.currentTarget.style.color = 'white';
+                                          e.currentTarget.style.borderColor = 'var(--primary)';
+                                          e.currentTarget.style.transform = 'translateY(-1px)';
+                                        }
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        if (!isSharingFile && !isAlreadyShared) {
+                                          e.currentTarget.style.background = 'var(--bg-card)';
+                                          e.currentTarget.style.color = 'var(--text-primary)';
+                                          e.currentTarget.style.borderColor = 'var(--border)';
+                                          e.currentTarget.style.transform = 'translateY(0)';
+                                        }
+                                      }}
+                                    >
+                                      <div style={{
+                                        width: '36px',
+                                        height: '36px',
+                                        borderRadius: '8px',
+                                        background: isAlreadyShared 
+                                          ? 'var(--bg-primary)' 
+                                          : 'linear-gradient(135deg, var(--primary), #0ea5e9)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexShrink: 0,
+                                        opacity: isAlreadyShared ? 0.5 : 1
+                                      }}>
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isAlreadyShared ? 'var(--text-secondary)' : 'white'} strokeWidth="2">
+                                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                          <polyline points="14 2 14 8 20 8"></polyline>
+                                        </svg>
+                                      </div>
+                                      <div style={{ 
+                                        flex: 1,
+                                        minWidth: 0,
+                                        overflow: 'hidden'
+                                      }}>
+                                        <div style={{ 
+                                          fontWeight: '600',
+                                          fontSize: '0.9rem',
+                                          marginBottom: '0.25rem',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap'
+                                        }}>
+                                          {file.fileName}
+                                        </div>
+                                        <div style={{ 
+                                          fontSize: '0.75rem', 
+                                          opacity: 0.8,
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '0.5rem'
+                                        }}>
+                                          <span>{file.fileType?.toUpperCase() || 'FILE'}</span>
+                                        </div>
                         </div>
                         {isAlreadyShared && (
-                          <div style={{ fontSize: '0.75rem', color: '#4caf50', marginTop: '0.25rem', fontWeight: '600' }}>
-                            ✓ Already shared
+                                        <div style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '0.375rem',
+                                          padding: '0.4rem 0.7rem',
+                                          background: 'rgba(76, 175, 80, 0.2)',
+                                          borderRadius: '6px',
+                                          fontSize: '0.7rem',
+                                          fontWeight: '600',
+                                          color: '#4caf50',
+                                          flexShrink: 0,
+                                          whiteSpace: 'nowrap',
+                                          border: '1px solid rgba(76, 175, 80, 0.3)'
+                                        }}>
+                                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                            <polyline points="20 6 9 17 4 12"></polyline>
+                                          </svg>
+                                          Shared
                           </div>
                         )}
                       </button>
                     );
-                  })
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 )}
               </div>
 
-              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+              {/* Upload Section - Scrollable */}
+              <div style={{
+                flex: '1 1 auto',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                minHeight: 0,
+                padding: '1.75rem 2rem',
+                borderTop: '2px solid var(--border)',
+                background: 'var(--bg-card)',
+                paddingBottom: '2rem'
+              }}>
+                <div style={{
+                  marginBottom: '1.5rem'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    marginBottom: '0.5rem'
+                  }}>
+                    <div style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(14, 165, 233, 0.15))',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 style={{
+                        margin: 0,
+                        color: 'var(--text-primary)',
+                        fontSize: '1.1rem',
+                        fontWeight: '600',
+                        letterSpacing: '-0.01em'
+                      }}>
+                        Upload New File
+                      </h3>
+                      <p style={{
+                        margin: '0.25rem 0 0 0',
+                        fontSize: '0.8125rem',
+                        color: 'var(--text-secondary)',
+                        opacity: 0.85
+                      }}>
+                        Upload and automatically share with the room
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Folder Selection */}
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '0.625rem',
+                    fontSize: '0.875rem',
+                    fontWeight: '600',
+                    color: 'var(--text-primary)'
+                  }}>
+                    Select Folder
+                  </label>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <style>{`
+                        select.folder-select option {
+                          background: var(--bg-input) !important;
+                          color: var(--text-primary) !important;
+                          padding: 0.5rem !important;
+                        }
+                        select.folder-select option:checked {
+                          background: var(--primary) !important;
+                          color: white !important;
+                        }
+                        select.folder-select option:hover {
+                          background: var(--bg-primary) !important;
+                          color: var(--text-primary) !important;
+                        }
+                      `}</style>
+                      <select
+                        className="folder-select"
+                        value={uploadFolder || ''}
+                        onChange={(e) => setUploadFolder(e.target.value)}
+                        disabled={isUploading || isCreatingFolder}
+                        style={{
+                          flex: 1,
+                          width: '100%',
+                          padding: '0.875rem 1rem',
+                          minHeight: '44px',
+                          fontSize: '0.9rem',
+                          background: 'var(--bg-input)',
+                          color: 'var(--text-primary)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '12px',
+                          cursor: (isUploading || isCreatingFolder) ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s',
+                          appearance: 'none',
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L6 6L11 1' stroke='%23ffffff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E")`,
+                          backgroundRepeat: 'no-repeat',
+                          backgroundPosition: 'right 1rem center',
+                          paddingRight: '2.5rem',
+                          fontWeight: '500',
+                          boxSizing: 'border-box'
+                        }}
+                        onFocus={(e) => {
+                          if (!isUploading && !isCreatingFolder) {
+                            e.target.style.borderColor = 'var(--primary)';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                            e.target.style.background = 'var(--bg-primary)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = 'var(--border)';
+                          e.target.style.boxShadow = 'none';
+                          e.target.style.background = 'var(--bg-input)';
+                        }}
+                      >
+                        <option value="" style={{ color: 'var(--text-secondary)' }}>-- Select a folder --</option>
+                        {folders.map(folder => (
+                          <option 
+                            key={folder._id} 
+                            value={folder.subject || folder.folderName}
+                            style={{ 
+                              background: 'var(--bg-input)',
+                              color: 'var(--text-primary)'
+                            }}
+                          >
+                            {folder.subject || folder.folderName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      onClick={() => setShowQuickCreateFolder(!showQuickCreateFolder)}
+                      disabled={isUploading || isCreatingFolder}
+                      style={{
+                        padding: '0.875rem 1.25rem',
+                        height: '100%',
+                        minHeight: '44px',
+                        background: showQuickCreateFolder ? 'var(--bg-input)' : 'var(--bg-input)',
+                        color: 'var(--text-primary)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '12px',
+                        cursor: (isUploading || isCreatingFolder) ? 'not-allowed' : 'pointer',
+                        fontSize: '0.875rem',
+                        fontWeight: '600',
+                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        transition: 'all 0.2s',
+                        flexShrink: 0,
+                        boxSizing: 'border-box'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isUploading && !isCreatingFolder && !showQuickCreateFolder) {
+                          e.currentTarget.style.background = 'var(--primary)';
+                          e.currentTarget.style.color = 'white';
+                          e.currentTarget.style.borderColor = 'var(--primary)';
+                          e.currentTarget.style.transform = 'scale(1.02)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!showQuickCreateFolder) {
+                          e.currentTarget.style.background = 'var(--bg-input)';
+                          e.currentTarget.style.color = 'var(--text-primary)';
+                          e.currentTarget.style.borderColor = 'var(--border)';
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        {showQuickCreateFolder ? (
+                          <line x1="18" y1="6" x2="6" y2="18"></line>
+                        ) : (
+                          <>
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                          </>
+                        )}
+                      </svg>
+                      {showQuickCreateFolder ? 'Cancel' : 'New Folder'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Create Folder */}
+                {showQuickCreateFolder && (
+                  <div style={{
+                    marginBottom: '1.25rem',
+                    padding: '1.25rem',
+                    background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(14, 165, 233, 0.08))',
+                    borderRadius: '12px',
+                    border: '1px solid var(--border)'
+                  }}>
+                    <label style={{
+                      display: 'block',
+                      marginBottom: '0.625rem',
+                      fontSize: '0.875rem',
+                      fontWeight: '600',
+                      color: 'var(--text-primary)'
+                    }}>
+                      New Folder Name
+                    </label>
+                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                      <input
+                        type="text"
+                        value={quickFolderName}
+                        onChange={(e) => setQuickFolderName(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleQuickCreateFolder()}
+                        disabled={isCreatingFolder}
+                        placeholder="e.g., Mathematics, Physics..."
+                        style={{
+                          flex: 1,
+                          padding: '0.875rem 1rem',
+                          fontSize: '0.9rem',
+                          background: 'var(--bg-primary)',
+                          color: 'var(--text-primary)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '12px',
+                          transition: 'all 0.2s',
+                          fontWeight: '500'
+                        }}
+                        onFocus={(e) => {
+                          if (!isCreatingFolder) {
+                            e.target.style.borderColor = 'var(--primary)';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                            e.target.style.background = 'var(--bg-card)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = 'var(--border)';
+                          e.target.style.boxShadow = 'none';
+                          e.target.style.background = 'var(--bg-primary)';
+                        }}
+                      />
+                      <button
+                        onClick={handleQuickCreateFolder}
+                        disabled={isCreatingFolder || !quickFolderName.trim()}
+                        style={{
+                          padding: '0.875rem 1.5rem',
+                          background: isCreatingFolder || !quickFolderName.trim() 
+                            ? 'var(--bg-input)' 
+                            : 'linear-gradient(135deg, var(--primary), #0ea5e9)',
+                          color: isCreatingFolder || !quickFolderName.trim() 
+                            ? 'var(--text-secondary)' 
+                            : 'white',
+                          border: 'none',
+                          borderRadius: '12px',
+                          cursor: (isCreatingFolder || !quickFolderName.trim()) ? 'not-allowed' : 'pointer',
+                          fontSize: '0.875rem',
+                          fontWeight: '600',
+                          transition: 'all 0.2s',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          flexShrink: 0,
+                          boxShadow: (isCreatingFolder || !quickFolderName.trim()) 
+                            ? 'none' 
+                            : '0 2px 8px rgba(59, 130, 246, 0.25)'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isCreatingFolder && quickFolderName.trim()) {
+                            e.currentTarget.style.transform = 'scale(1.02)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.35)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'scale(1)';
+                          e.currentTarget.style.boxShadow = (isCreatingFolder || !quickFolderName.trim()) 
+                            ? 'none' 
+                            : '0 2px 8px rgba(59, 130, 246, 0.25)';
+                        }}
+                      >
+                        {isCreatingFolder ? (
+                          <>
+                            <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px', borderTopColor: 'white' }}></div>
+                            Creating...
+                          </>
+                        ) : (
+                          'Create'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* File Upload */}
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '0.625rem',
+                    fontSize: '0.875rem',
+                    fontWeight: '600',
+                    color: 'var(--text-primary)'
+                  }}>
+                    Choose File
+                  </label>
+                  <div style={{
+                    position: 'relative',
+                    border: '2px dashed var(--border)',
+                    borderRadius: '12px',
+                    padding: '1.5rem',
+                    textAlign: 'center',
+                    background: 'var(--bg-input)',
+                    transition: 'all 0.25s',
+                    cursor: isUploading ? 'not-allowed' : 'pointer',
+                    minHeight: '140px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isUploading) {
+                      e.currentTarget.style.borderColor = 'var(--primary)';
+                      e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)';
+                      e.currentTarget.style.borderStyle = 'solid';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border)';
+                    e.currentTarget.style.background = 'var(--bg-input)';
+                    e.currentTarget.style.borderStyle = 'dashed';
+                  }}
+                  >
+                    <input
+                      type="file"
+                      accept=".docx,.txt,.md"
+                      onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                      disabled={isUploading}
+                      style={{
+                        position: 'absolute',
+                        width: '100%',
+                        height: '100%',
+                        top: 0,
+                        left: 0,
+                        opacity: 0,
+                        cursor: isUploading ? 'not-allowed' : 'pointer'
+                      }}
+                    />
+                    {uploadFile ? (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '1rem',
+                        width: '100%',
+                        padding: '0.75rem',
+                        background: 'var(--bg-card)',
+                        borderRadius: '10px',
+                        border: '1px solid var(--border)'
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.875rem',
+                          flex: 1,
+                          minWidth: 0
+                        }}>
+                          <div style={{
+                            width: '44px',
+                            height: '44px',
+                            borderRadius: '10px',
+                            background: 'linear-gradient(135deg, var(--primary), #0ea5e9)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            boxShadow: '0 2px 8px rgba(59, 130, 246, 0.25)'
+                          }}>
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                              <polyline points="14 2 14 8 20 8"></polyline>
+                            </svg>
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ 
+                              fontWeight: '600', 
+                              fontSize: '0.95rem',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              marginBottom: '0.25rem',
+                              color: 'var(--text-primary)'
+                            }}>
+                              {uploadFile.name}
+                            </div>
+                            <div style={{ 
+                              fontSize: '0.8125rem', 
+                              color: 'var(--text-secondary)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem'
+                            }}>
+                              <span>{(uploadFile.size / 1024).toFixed(2)} KB</span>
+                              <span style={{ opacity: 0.5 }}>•</span>
+                              <span>{uploadFile.name.split('.').pop().toUpperCase()}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setUploadFile(null);
+                          }}
+                          disabled={isUploading}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--text-secondary)',
+                            cursor: isUploading ? 'not-allowed' : 'pointer',
+                            padding: '0.5rem',
+                            borderRadius: '8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'all 0.2s',
+                            flexShrink: 0,
+                            width: '32px',
+                            height: '32px'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isUploading) {
+                              e.currentTarget.style.background = 'var(--bg-primary)';
+                              e.currentTarget.style.color = 'var(--text-primary)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = 'var(--text-secondary)';
+                          }}
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                          </svg>
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{
+                          width: '64px',
+                          height: '64px',
+                          margin: '0 auto 1rem',
+                          borderRadius: '16px',
+                          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(14, 165, 233, 0.1))',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" style={{ opacity: 0.8 }}>
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                          </svg>
+                        </div>
+                        <div style={{ 
+                          fontWeight: '600', 
+                          fontSize: '0.95rem',
+                          color: 'var(--text-primary)',
+                          marginBottom: '0.375rem'
+                        }}>
+                          Click to choose file
+                        </div>
+                        <div style={{ 
+                          fontSize: '0.8125rem', 
+                          color: 'var(--text-secondary)',
+                          opacity: 0.85
+                        }}>
+                          DOCX, TXT, or MD (max 10MB)
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Footer */}
+              <div style={{ 
+                padding: '1.5rem 2rem',
+                borderTop: '1px solid var(--border)',
+                display: 'flex',
+                gap: '0.75rem',
+                justifyContent: 'center',
+                flexShrink: 0,
+                background: 'var(--bg-primary)'
+              }}>
                 <button
                   onClick={() => {
+                    if (!uploadFolder || !uploadFile || isUploading || isCreatingFolder) {
+                      // If button is disabled, close the modal
                     setShowShareFileModal(false);
+                      setUploadFile(null);
+                      setUploadFolder(null);
+                      setShowQuickCreateFolder(false);
+                      setQuickFolderName('');
+                    } else {
+                      // If button is enabled, upload and share
+                      handleUploadFile();
+                    }
                   }}
                   disabled={isSharingFile}
                   style={{
-                    padding: '0.75rem 1.5rem',
-                    background: 'var(--bg-input)',
-                    color: 'var(--text-primary)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '8px',
+                    width: '100%',
+                    padding: '1rem 1.5rem',
+                    background: (!uploadFolder || !uploadFile || isUploading || isCreatingFolder) 
+                      ? 'var(--bg-input)' 
+                      : 'linear-gradient(135deg, var(--primary), #0ea5e9)',
+                    color: (!uploadFolder || !uploadFile || isUploading || isCreatingFolder)
+                      ? 'var(--text-secondary)'
+                      : 'white',
+                    border: (!uploadFolder || !uploadFile || isUploading || isCreatingFolder)
+                      ? '1px solid var(--border)'
+                      : 'none',
+                    borderRadius: '12px',
                     fontSize: '1rem',
                     fontWeight: '600',
-                    cursor: isSharingFile ? 'not-allowed' : 'pointer'
+                    cursor: (isSharingFile || isUploading) ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.75rem',
+                    boxShadow: (!uploadFolder || !uploadFile || isUploading || isCreatingFolder)
+                      ? 'none'
+                      : '0 4px 16px rgba(59, 130, 246, 0.4)',
+                    letterSpacing: '0.01em'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSharingFile && !isUploading) {
+                      if (!uploadFolder || !uploadFile || isCreatingFolder) {
+                        e.currentTarget.style.background = 'var(--bg-card)';
+                        e.currentTarget.style.borderColor = 'var(--primary)';
+                      } else {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 8px 24px rgba(59, 130, 246, 0.5)';
+                      }
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSharingFile && !isUploading) {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = (!uploadFolder || !uploadFile || isUploading || isCreatingFolder)
+                        ? 'none'
+                        : '0 4px 16px rgba(59, 130, 246, 0.4)';
+                      if (!uploadFolder || !uploadFile || isCreatingFolder) {
+                        e.currentTarget.style.borderColor = 'var(--border)';
+                      }
+                    }
                   }}
                 >
-                  Close
+                  {isUploading ? (
+                    <>
+                      <div className="spinner" style={{ width: '20px', height: '20px', borderWidth: '3px', borderTopColor: 'white' }}></div>
+                      <span>Uploading & Sharing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                      </svg>
+                      <span>Upload & Share</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

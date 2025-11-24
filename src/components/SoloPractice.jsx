@@ -414,17 +414,28 @@ const SoloPractice = () => {
               <p>Loading files...</p>
             </div>
           ) : allSubjects.length === 0 ? (
-            <div className="empty-files-state" style={{ textAlign: 'center', padding: '4rem' }}>
-              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ margin: '0 auto 1rem', color: 'var(--text-muted)' }}>
+            <div className="empty-files-state" style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              textAlign: 'center', 
+              padding: '4rem',
+              gap: '1rem',
+              border: '2px dashed var(--border)',
+              borderRadius: '12px',
+              margin: '2rem'
+            }}>
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'var(--text-muted)' }}>
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                 <polyline points="14 2 14 8 20 8"/>
               </svg>
-              <h3>No files available</h3>
-              <p>Upload files in "My Files" to start practicing</p>
+              <h3 style={{ margin: 0 }}>No files available</h3>
+              <p style={{ margin: 0 }}>Upload files in "My Files" to start practicing</p>
               <button 
                 className="btn-primary"
                 onClick={() => navigate('/my-files')}
-                style={{ marginTop: '1.5rem' }}
+                style={{ marginTop: '0.5rem' }}
               >
                 Go to My Files
               </button>
@@ -485,30 +496,156 @@ const SoloPractice = () => {
                       {selectedSubject} ({filesBySubject[selectedSubject].length} files)
                     </h3>
                     <div className="files-grid-modal" style={{ maxHeight: 'none', paddingRight: '0' }}>
-                      {filesBySubject[selectedSubject].map((file) => (
-                        <button
-                          key={file.id}
-                          className="file-item-modal"
-                          onClick={() => handleFileSelect(file)}
-                          disabled={!file.hasContent}
-                        >
-                          <div className="file-icon-modal">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                              <polyline points="14 2 14 8 20 8"/>
-                            </svg>
-                          </div>
-                          <div className="file-info-modal">
-                            <h4>{file.name}</h4>
-                            <span className="file-subject-modal">
-                              {file.type.toUpperCase()} File
-                            </span>
-                            {!file.hasContent && (
-                              <span style={{ color: '#ef4444', fontSize: '0.75rem' }}>No content available</span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
+                      {filesBySubject[selectedSubject].map((file) => {
+                        const iconConfigs = {
+                          docx: { 
+                            primary: '#4A90E2',
+                            secondary: '#357ABD',
+                            background: '#E8F4FF'
+                          },
+                          txt: { 
+                            primary: '#6B7280',
+                            secondary: '#4B5563',
+                            background: '#F3F4F6'
+                          },
+                          md: { 
+                            primary: '#8B5CF6',
+                            secondary: '#7C3AED',
+                            background: '#F5F3FF'
+                          },
+                          default: { 
+                            primary: '#3B82F6',
+                            secondary: '#2563EB',
+                            background: '#EFF6FF'
+                          }
+                        };
+
+                        const config = iconConfigs[file.type] || iconConfigs.default;
+                        
+                        return (
+                          <button
+                            key={file.id}
+                            className="file-item-modal"
+                            onClick={() => handleFileSelect(file)}
+                            disabled={!file.hasContent}
+                            style={{ 
+                              background: 'transparent',
+                              border: 'none',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: '0'
+                            }}
+                          >
+                            <div style={{ 
+                              width: '100px',
+                              background: 'white',
+                              borderRadius: '12px',
+                              padding: '1rem',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              position: 'relative',
+                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
+                            }}>
+                              {/* Icon */}
+                              <div style={{ 
+                                width: '60px', 
+                                height: '60px',
+                                background: config.background,
+                                borderRadius: '10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                position: 'relative',
+                                flexShrink: 0
+                              }}>
+                                <svg width="36" height="36" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  {/* Back Document (shadow/duplicate effect) */}
+                                  <path 
+                                    d="M16 6H28L36 14V38C36 39.1046 35.1046 40 34 40H16C14.8954 40 14 39.1046 14 38V8C14 6.89543 14.8954 6 16 6Z" 
+                                    fill={config.secondary}
+                                    opacity="0.2"
+                                  />
+                                  
+                                  {/* Main Document Body */}
+                                  <path 
+                                    d="M13 4H25L33 12V36C33 37.1046 32.1046 38 31 38H13C11.8954 38 11 37.1046 11 36V6C11 4.89543 11.8954 4 13 4Z" 
+                                    fill={config.primary}
+                                  />
+                                  
+                                  {/* Folded Corner */}
+                                  <path 
+                                    d="M25 4V10C25 11.1046 25.8954 12 27 12H33L25 4Z" 
+                                    fill={config.secondary}
+                                    opacity="0.5"
+                                  />
+                                  
+                                  {/* Document Lines - white */}
+                                  <line x1="16" y1="18" x2="28" y2="18" stroke="white" strokeWidth="2" strokeLinecap="round" opacity="0.9"/>
+                                  <line x1="16" y1="23" x2="28" y2="23" stroke="white" strokeWidth="2" strokeLinecap="round" opacity="0.9"/>
+                                  <line x1="16" y1="28" x2="24" y2="28" stroke="white" strokeWidth="2" strokeLinecap="round" opacity="0.9"/>
+                                </svg>
+                                
+                                {/* File Type Badge */}
+                                <div style={{
+                                  position: 'absolute',
+                                  bottom: '4px',
+                                  right: '4px',
+                                  fontSize: '7px',
+                                  fontWeight: '700',
+                                  color: 'white',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.3px',
+                                  padding: '2px 4px',
+                                  background: config.primary,
+                                  borderRadius: '3px',
+                                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                                }}>
+                                  {file.type}
+                                </div>
+                              </div>
+                              
+                              {/* File Name and Type - Inside white box */}
+                              <div style={{ 
+                                textAlign: 'center',
+                                width: '100%'
+                              }}>
+                                <div style={{ 
+                                  fontSize: '0.75rem',
+                                  fontWeight: '600',
+                                  color: '#1f2937',
+                                  marginBottom: '0.25rem',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  {file.name}
+                                </div>
+                                <div style={{ 
+                                  fontSize: '0.65rem',
+                                  color: '#6b7280',
+                                  textTransform: 'uppercase',
+                                  fontWeight: '500'
+                                }}>
+                                  {file.type} File
+                                </div>
+                                {!file.hasContent && (
+                                  <div style={{ 
+                                    color: '#ef4444', 
+                                    fontSize: '0.6rem',
+                                    marginTop: '0.25rem'
+                                  }}>
+                                    No content
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -519,14 +656,18 @@ const SoloPractice = () => {
           {/* Question Count Modal */}
           {showQuestionCountModal && selectedFile && (
             <div className="modal-overlay" onClick={() => !isGeneratingQuestions && setShowQuestionCountModal(false)}>
-              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-                <h3>Generate Questions</h3>
-                <p style={{ marginBottom: '1.5rem', color: 'var(--text-secondary)' }}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ 
+                maxWidth: '420px',
+                width: '90%',
+                padding: '2rem'
+              }}>
+                <h3 style={{ marginBottom: '0.75rem', fontSize: '1.5rem' }}>Generate Questions</h3>
+                <p style={{ marginBottom: '1.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                   Select test type and number of questions from <strong>{selectedFile.name}</strong>
                 </p>
                 
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-primary)', fontSize: '0.9rem', fontWeight: '500' }}>
                     Test Type:
                   </label>
                   <select
@@ -540,8 +681,8 @@ const SoloPractice = () => {
                       color: 'var(--text-primary)',
                       border: '1px solid var(--border-color)',
                       borderRadius: '8px',
-                      fontSize: '1rem',
-                      marginBottom: '1rem'
+                      fontSize: '0.95rem',
+                      cursor: 'pointer'
                     }}
                   >
                     <option value="multiple_choice">Multiple Choice</option>
@@ -551,7 +692,7 @@ const SoloPractice = () => {
                 </div>
 
                 <div style={{ marginBottom: '1.5rem' }}>
-                  <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-primary)', fontSize: '0.9rem', fontWeight: '500' }}>
                     Number of Questions:
                   </label>
                   <select
@@ -565,7 +706,8 @@ const SoloPractice = () => {
                       color: 'var(--text-primary)',
                       border: '1px solid var(--border-color)',
                       borderRadius: '8px',
-                      fontSize: '1rem'
+                      fontSize: '0.95rem',
+                      cursor: 'pointer'
                     }}
                   >
                     <option value={5}>5 Questions</option>
@@ -578,7 +720,7 @@ const SoloPractice = () => {
                 </div>
 
                 {isGeneratingQuestions && (
-                  <div style={{ textAlign: 'center', padding: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ textAlign: 'center', padding: '1rem', marginBottom: '1.5rem' }}>
                     <svg className="spinner" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ margin: '0 auto 0.5rem' }}>
                       <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
                     </svg>
@@ -588,7 +730,7 @@ const SoloPractice = () => {
                   </div>
                 )}
 
-                <div className="modal-actions">
+                <div className="modal-actions" style={{ marginTop: '1.5rem', gap: '0.75rem' }}>
                   <button
                     className="btn-secondary"
                     onClick={() => {
@@ -596,6 +738,7 @@ const SoloPractice = () => {
                       setSelectedFile(null);
                     }}
                     disabled={isGeneratingQuestions}
+                    style={{ flex: 1 }}
                   >
                     Cancel
                   </button>
@@ -603,6 +746,7 @@ const SoloPractice = () => {
                     className="btn-primary"
                     onClick={handleGenerateQuestions}
                     disabled={isGeneratingQuestions}
+                    style={{ flex: 1 }}
                   >
                     {isGeneratingQuestions ? 'Generating...' : 'Generate Questions'}
                   </button>

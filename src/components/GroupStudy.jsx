@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
 import { createCompetition, joinCompetition, submitAnswer, completeCompetition, getCompetition, getFiles, createFile, getFolders, createFolder } from '../services/apiService';
-import { createStudyRoom, joinStudyRoom } from '../services/apiService';
+import { createStudyRoom, joinStudyRoom, getAllStudyRooms } from '../services/apiService';
 import { generateQuestionsFromFile } from '../services/aiService';
 import '../styles/GroupStudy.css';
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
@@ -68,6 +68,7 @@ const GroupStudy = () => {
   const [showCreateRoomModal, setShowCreateRoomModal] = useState(false);
   const [showJoinRoomModal, setShowJoinRoomModal] = useState(false);
   const [showRoomCodeModal, setShowRoomCodeModal] = useState(false);
+  const [showRoomBrowserModal, setShowRoomBrowserModal] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [createdRoomCode, setCreatedRoomCode] = useState('');
   const [roomCode, setRoomCode] = useState('');
@@ -76,6 +77,12 @@ const GroupStudy = () => {
   const [createRoomError, setCreateRoomError] = useState('');
   const [joinRoomError, setJoinRoomError] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
+  const [availableRooms, setAvailableRooms] = useState([]);
+  
+  // Notification Modal States
+  const [showNotification, setShowNotification] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationType, setNotificationType] = useState('success'); // 'success' or 'error'
   
   // Get questions from location state (if coming from MyFiles)
   const reviewerQuestions = location.state?.questions || null;
@@ -154,6 +161,35 @@ const GroupStudy = () => {
     }
   }, []);
 
+  // Fetch available rooms from database
+  useEffect(() => {
+    const fetchAvailableRooms = async () => {
+      try {
+        console.log('🔄 Fetching available rooms...');
+        const response = await getAllStudyRooms();
+        console.log('📥 Rooms API response:', response);
+        
+        if (response && response.success) {
+          console.log(`✅ Found ${response.rooms?.length || 0} room(s)`);
+          setAvailableRooms(response.rooms || []);
+        } else {
+          console.error('❌ Failed to fetch rooms:', response?.message);
+          setAvailableRooms([]);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching available rooms:', error);
+        console.error('Error details:', error.message);
+        setAvailableRooms([]);
+      }
+    };
+
+    fetchAvailableRooms();
+    
+    // Refresh rooms every 10 seconds
+    const interval = setInterval(fetchAvailableRooms, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Fixed 20 seconds per question
   useEffect(() => {
     setTimePerQuestion(20);
@@ -227,31 +263,41 @@ const GroupStudy = () => {
     }
   }, [showUploadSection]);
 
+  // Notification helper function
+  const showNotificationModal = (message, type = 'success') => {
+    setNotificationMessage(message);
+    setNotificationType(type);
+    setShowNotification(true);
+    
+    // Modal will only close when OK button is pressed
+  };
+
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
-      alert('Please enter a folder name');
+      showNotificationModal('Please enter a folder name', 'error');
       return;
     }
 
     setIsCreatingFolder(true);
     try {
+      const folderName = newFolderName.trim();
       const response = await createFolder({
         userId,
-        folderName: newFolderName.trim()
+        folderName: folderName
       });
 
       if (response.success) {
         await fetchFolders();
-        setUploadFolder(newFolderName.trim());
+        setUploadFolder(folderName);
         setNewFolderName('');
         setShowNewFolderInput(false);
-        alert(`Folder "${newFolderName.trim()}" created successfully!`);
+        showNotificationModal(`Folder "${folderName}" created successfully!`, 'success');
       } else {
-        alert(response.message || 'Failed to create folder');
+        showNotificationModal(response.message || 'Failed to create folder', 'error');
       }
     } catch (error) {
       console.error('Error creating folder:', error);
-      alert(`Failed to create folder: ${error.message || 'Please try again.'}`);
+      showNotificationModal(`Failed to create folder: ${error.message || 'Please try again.'}`, 'error');
     } finally {
       setIsCreatingFolder(false);
     }
@@ -259,12 +305,12 @@ const GroupStudy = () => {
 
   const handleUploadFile = async () => {
     if (!uploadFolder || !uploadFolder.trim()) {
-      alert('Please select or create a folder/subject first');
+      showNotificationModal('Please select or create a folder/subject first', 'error');
       return;
     }
     
     if (!uploadFile) {
-      alert('Please choose a file to upload');
+      showNotificationModal('Please choose a file to upload', 'error');
       return;
     }
 
@@ -273,14 +319,14 @@ const GroupStudy = () => {
     // Check if file type is supported
     const supportedTypes = ['txt', 'md', 'docx'];
     if (!supportedTypes.includes(fileType)) {
-      alert(`File type .${fileType} is not supported.\n\nSupported formats:\n• Word Document (.docx)\n• Text File (.txt)\n• Markdown (.md)`);
+      showNotificationModal(`File type .${fileType} is not supported.\n\nSupported formats:\n• Word Document (.docx)\n• Text File (.txt)\n• Markdown (.md)`, 'error');
       return;
     }
 
     // Validate file size (max 10MB)
     const maxSize = 10 * 1024 * 1024; // 10MB
     if (uploadFile.size > maxSize) {
-      alert(`File is too large (${(uploadFile.size / 1024 / 1024).toFixed(2)}MB). Maximum file size is 10MB.`);
+      showNotificationModal(`File is too large (${(uploadFile.size / 1024 / 1024).toFixed(2)}MB). Maximum file size is 10MB.`, 'error');
       return;
     }
 
@@ -338,10 +384,10 @@ const GroupStudy = () => {
             setUploadFolder('');
             setShowUploadSection(false);
             
-            alert(`✅ ${fileTypeName} file "${uploadedFileName}" uploaded successfully!\n\nThe file is now available for quiz generation.`);
+            showNotificationModal(`${fileTypeName} file "${uploadedFileName}" uploaded successfully!\n\nThe file is now available for quiz generation.`, 'success');
           } else {
             console.error('❌ Upload failed:', response);
-            alert(response.message || 'Failed to upload file. Please check the console for details.');
+            showNotificationModal(response.message || 'Failed to upload file. Please check the console for details.', 'error');
           }
         } catch (error) {
           console.error('❌ Error uploading file:', error);
@@ -351,7 +397,7 @@ const GroupStudy = () => {
             response: error.response
           });
           const errorMessage = error.message || 'Failed to upload file';
-          alert(`Failed to upload file: ${errorMessage}\n\nPlease check:\n• Backend server is running\n• File is not corrupted\n• File contains readable text`);
+          showNotificationModal(`Failed to upload file: ${errorMessage}\n\nPlease check:\n• Backend server is running\n• File is not corrupted\n• File contains readable text`, 'error');
         } finally {
           setIsUploading(false);
         }
@@ -359,12 +405,12 @@ const GroupStudy = () => {
       
       reader.onerror = (error) => {
         console.error('❌ FileReader error:', error);
-        alert('Error reading file. Please try again.');
+        showNotificationModal('Error reading file. Please try again.', 'error');
         setIsUploading(false);
       };
     } catch (error) {
       console.error('❌ Error in handleUploadFile:', error);
-      alert(`Failed to upload file: ${error.message || 'Unknown error'}`);
+      showNotificationModal(`Failed to upload file: ${error.message || 'Unknown error'}`, 'error');
       setIsUploading(false);
     }
   };
@@ -390,7 +436,7 @@ const GroupStudy = () => {
       } else {
         const errorMsg = response?.message || 'Failed to create room';
         setCreateRoomError(errorMsg);
-        alert(errorMsg); // Temporary alert for debugging
+        showNotificationModal(errorMsg, 'error');
         console.error('Failed to create room:', response);
       }
     } catch (error) {
@@ -404,7 +450,7 @@ const GroupStudy = () => {
         errorMsg += error.message || 'Please check if backend is running.';
       }
       setCreateRoomError(errorMsg);
-      alert(errorMsg); // Temporary alert for debugging
+      showNotificationModal(errorMsg, 'error');
     } finally {
       setIsCreatingRoom(false);
     }
@@ -487,13 +533,19 @@ const GroupStudy = () => {
         const response = await joinStudyRoom(roomCode.trim().toUpperCase(), userId, playerName);
         
         if (response.success) {
-          // Navigate to study room page
-          navigate(`/study-room/${response.room.roomCode}`, {
-            state: {
-              room: response.room,
-              isHost: false
-            }
-          });
+          // Show success message before navigating
+          showNotificationModal(`Joining ${response.room.name || 'Study Group'}...`, 'success');
+          setShowJoinRoomModal(false);
+          
+          // Navigate to study room page after a short delay
+          setTimeout(() => {
+            navigate(`/study-room/${response.room.roomCode}`, {
+              state: {
+                room: response.room,
+                isHost: false
+              }
+            });
+          }, 1500);
         } else {
           setJoinRoomError(response.message || 'Failed to join room');
         }
@@ -545,7 +597,7 @@ const GroupStudy = () => {
       setSelectedFile(file);
       setQuizSetupStep(2); // Move to quiz type selection
     } else {
-      alert('This file does not have extractable content. Please select a different file.');
+      showNotificationModal('This file does not have extractable content. Please select a different file.', 'error');
     }
   };
 
@@ -640,7 +692,7 @@ const GroupStudy = () => {
       }
     } catch (error) {
       console.error('Error creating competition for invite:', error);
-      alert(`Failed to create competition: ${error.message || 'Please try again.'}`);
+      showNotificationModal(`Failed to create competition: ${error.message || 'Please try again.'}`, 'error');
       setIsWaitingForOpponent(false);
     } finally {
       setIsGeneratingQuestions(false);
@@ -739,7 +791,7 @@ const GroupStudy = () => {
       // Don't show error for AI configuration - fallback will work
       // Questions will be generated using fallback method
       
-      alert(`Failed to start AI battle: ${errorMessage}`);
+      showNotificationModal(`Failed to start AI battle: ${errorMessage}`, 'error');
       setIsWaitingForOpponent(false);
     } finally {
       setIsGeneratingQuestions(false);
@@ -890,7 +942,7 @@ const GroupStudy = () => {
     } catch (error) {
       console.error('Error starting competition:', error);
       console.error('Error details:', error.message, error.stack);
-      alert(`Failed to start competition. ${error.message || 'Please try again.'}`);
+      showNotificationModal(`Failed to start competition. ${error.message || 'Please try again.'}`, 'error');
       setIsWaitingForOpponent(false);
     }
   };
@@ -954,7 +1006,7 @@ const GroupStudy = () => {
           setSelectedAnswer(null);
         } else if (attempts >= maxAttempts) {
           clearInterval(pollInterval);
-          alert('No opponent found after 60 seconds. You can try again or share your room code with a friend.');
+          showNotificationModal('No opponent found after 60 seconds. You can try again or share your room code with a friend.', 'error');
           setIsWaitingForOpponent(false);
         }
         attempts++;
@@ -1169,7 +1221,7 @@ const GroupStudy = () => {
 
     const winner = score > opponentScore ? 'You' : score < opponentScore ? competitionData?.opponentName : 'Tie';
     setTimeout(() => {
-      alert(`Competition ended!\n\nYour Score: ${score}/${sampleQuestions.length}\n${competitionData?.opponentName}'s Score: ${opponentScore}/${sampleQuestions.length}\n\nWinner: ${winner}`);
+      showNotificationModal(`Competition ended!\n\nYour Score: ${score}/${sampleQuestions.length}\n${competitionData?.opponentName}'s Score: ${opponentScore}/${sampleQuestions.length}\n\nWinner: ${winner}`, 'success');
       setCompetitionData(null);
       setCurrentQuestionIndex(0);
       setScore(0);
@@ -1444,37 +1496,6 @@ const GroupStudy = () => {
               </div>
 
               <div className="competition-rules">
-                <h3>Study Battle - How it works:</h3>
-                <ul>
-                  <li>🎯 <strong>Create/Join Battle:</strong> Create a battle room or join with a room code</li>
-                  <li>📝 <strong>Question Source:</strong> Room creator selects subject and test type. Questions are AI-generated from uploaded files</li>
-                  <li>👤 <strong>Who Creates Questions:</strong> Room creator picks the file/subject. AI automatically generates questions</li>
-                  {competitionType === '1v1' ? (
-                    <>
-                      <li>⏱️ <strong>Real-time Competition:</strong> Both players answer the same questions simultaneously (20 seconds per question)</li>
-                      <li>📊 <strong>Live Scoring:</strong> See your score vs opponent's score in real-time</li>
-                      <li>🏆 <strong>Winner:</strong> Player with highest score at the end wins!</li>
-                    </>
-                  ) : (
-                    <>
-                      <li>⏱️ <strong>Group Quiz:</strong> All players answer the same questions simultaneously (20 seconds per question)</li>
-                      <li>📊 <strong>Live Leaderboard:</strong> See all players' scores in real-time (Quizizz-style)</li>
-                      <li>🏆 <strong>Winner:</strong> Player with highest score at the end wins! Top 3 players get special recognition</li>
-                      <li>👥 <strong>Multiple Players:</strong> Up to {maxPlayers} players can join via room code</li>
-                    </>
-                  )}
-                </ul>
-                
-                <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--bg-input)', borderRadius: '8px' }}>
-                  <h4 style={{ marginBottom: '0.5rem' }}>📋 Study Battle Concept:</h4>
-                  <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                    {competitionType === '1v1' 
-                      ? 'Study Battle is a competitive quiz mode where 2 players compete in real-time. Both players see the same questions and have the same time limit. The player who answers more questions correctly and faster wins the battle!'
-                      : `Group Quiz is a Quizizz-style competitive quiz where up to ${maxPlayers} players compete simultaneously. All players see the same questions and have the same time limit. Real-time leaderboard shows everyone's scores. The player with the highest score wins!`
-                    }
-                  </p>
-                </div>
-                
                 {competitionType === '1v1' && (
                   <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--primary)', borderRadius: '8px', color: 'white' }}>
                     <h4 style={{ marginBottom: '0.5rem' }}>🎯 Automatic Matching Logic (1v1 Only):</h4>
@@ -1552,68 +1573,31 @@ const GroupStudy = () => {
               <p>Create or join a study room to collaborate with other students. Share documents, take notes together, and study synchronously!</p>
               
               <div className="collaborative-features">
-                <h3>Features:</h3>
+                <h3>Key Features:</h3>
                 <ul>
-                  <li>📄 <strong>Synchronized Document Viewing</strong> - Everyone sees the same page</li>
                   <li>✏️ <strong>Shared Notes</strong> - Collaborate on study notes in real-time</li>
                   <li>💬 <strong>Live Chat</strong> - Discuss and ask questions together</li>
-                  <li>⏱️ <strong>Shared Study Timer</strong> - Study in sync with your group</li>
                   <li>📚 <strong>Document Sharing</strong> - Upload and share study materials</li>
                 </ul>
                 
                 <h3 style={{ marginTop: '1.5rem' }}>Question Generation:</h3>
                 <ul>
-                  <li>📝 <strong>Room Creator</strong> selects subject and test type (Multiple Choice, True/False, Fill-in-the-Blank)</li>
-                  <li>🤖 <strong>AI Generation:</strong> Questions are automatically generated from uploaded files using AI</li>
-                  <li>📁 <strong>File Selection:</strong> Room creator picks which file to use for question generation</li>
-                  <li>👥 <strong>All Participants:</strong> See and answer the same questions simultaneously</li>
-                </ul>
-                
-                <h3 style={{ marginTop: '1.5rem' }}>📝 Quiz Feature in Study Together:</h3>
-                <ul>
-                  <li>✅ <strong>Yes, pwede mag-quiz!</strong> Study Together rooms can have quiz sessions</li>
-                  <li>🎯 <strong>Host Controls:</strong> Room host can start a quiz for everyone</li>
-                  <li>👥 <strong>Group Quiz:</strong> All participants answer questions together</li>
-                  <li>📊 <strong>No Competition:</strong> Quiz is collaborative - everyone sees answers and explanations</li>
-                  <li>🤝 <strong>Study Mode:</strong> Focus on learning, not competition</li>
+                  <li>🤖 <strong>AI Generation</strong> - Questions automatically generated from uploaded files</li>
+                  <li>📁 <strong>File Selection</strong> - Choose which file to use for question generation</li>
                 </ul>
               </div>
 
-              {createRoomError && (
-                <div className="error-message" style={{ marginBottom: '1rem' }}>
-                  {createRoomError}
-                </div>
-              )}
               <div className="room-actions">
                 <button 
                   className="btn-create-room" 
-                  onClick={handleCreateRoom}
-                  disabled={isCreatingRoom}
+                  onClick={() => setShowRoomBrowserModal(true)}
                 >
-                  {isCreatingRoom ? (
-                    <>
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="spinner">
-                        <circle cx="12" cy="12" r="10" strokeDasharray="60" strokeDashoffset="30"/>
-                      </svg>
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <line x1="12" y1="5" x2="12" y2="19"/>
-                        <line x1="5" y1="12" x2="19" y2="12"/>
-                      </svg>
-                      Create Study Room
-                    </>
-                  )}
-                </button>
-                <button className="btn-join-room" onClick={() => setShowJoinRoomModal(true)}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
-                    <polyline points="10 17 15 12 10 7"/>
-                    <line x1="15" y1="12" x2="3" y2="12"/>
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    <line x1="3" y1="9" x2="21" y2="9"/>
+                    <line x1="9" y1="21" x2="9" y2="9"/>
                   </svg>
-                  Join Study Room
+                  Browse Study Rooms
                 </button>
               </div>
             </div>
@@ -1623,9 +1607,13 @@ const GroupStudy = () => {
         {/* Room Code Modal (Shown after creating room) */}
         {showRoomCodeModal && createdRoomCode && (
           <div className="modal-overlay" onClick={() => setShowRoomCodeModal(false)}>
-            <div className="modal-content room-code-modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2>{competitionType === 'group' ? 'Group Quiz Created!' : 'Room Created!'}</h2>
+            <div className="modal-content room-code-modal" onClick={(e) => e.stopPropagation()} style={{ 
+              maxWidth: '450px',
+              width: '90%',
+              padding: '0'
+            }}>
+              <div className="modal-header" style={{ padding: '1.5rem 1.5rem 1rem 1.5rem' }}>
+                <h2 style={{ fontSize: '1.25rem', margin: 0 }}>{competitionType === 'group' ? 'Group Quiz Created!' : 'Room Created!'}</h2>
                 <button className="modal-close" onClick={() => setShowRoomCodeModal(false)}>
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="18" y1="6" x2="6" y2="18"/>
@@ -1633,35 +1621,38 @@ const GroupStudy = () => {
                   </svg>
                 </button>
               </div>
-              <div className="modal-body">
+              <div className="modal-body" style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
                 {competitionType === 'group' && (
                   <div style={{ 
-                    padding: '1rem', 
+                    padding: '0.875rem', 
                     background: 'var(--bg-input)', 
                     borderRadius: '8px', 
-                    marginBottom: '1rem',
-                    fontSize: '0.9rem',
+                    marginBottom: '1.25rem',
+                    fontSize: '0.85rem',
                     color: 'var(--text-secondary)'
                   }}>
-                    <p style={{ margin: '0 0 0.5rem 0' }}>👥 <strong>Group Quiz (Quizizz-style)</strong></p>
-                    <p style={{ margin: 0 }}>Share this code with up to {maxPlayers} players. Once everyone joins, you can start the quiz!</p>
+                    <p style={{ margin: '0 0 0.375rem 0' }}>👥 <strong>Group Quiz (Quizizz-style)</strong></p>
+                    <p style={{ margin: 0, fontSize: '0.8rem' }}>Share this code with up to {maxPlayers} players. Once everyone joins, you can start the quiz!</p>
                   </div>
                 )}
-                <div className="room-code-display">
-                  <p className="room-code-label">{competitionType === 'group' ? `Share this quiz code with up to ${maxPlayers} players:` : 'Share this code with your friends:'}</p>
+                <div className="room-code-display" style={{ marginBottom: '0' }}>
+                  <p className="room-code-label" style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>
+                    {competitionType === 'group' ? `Share this quiz code with up to ${maxPlayers} players:` : 'Share this code with your friends:'}
+                  </p>
                   <div className="room-code-box">
-                    <span className="room-code-text">{createdRoomCode}</span>
+                    <span className="room-code-text" style={{ fontSize: '0.95rem', wordBreak: 'break-all' }}>{createdRoomCode}</span>
                     <button 
                       className="btn-copy-code" 
                       onClick={handleCopyRoomCode}
                       title="Copy code"
+                      style={{ padding: '0.5rem' }}
                     >
                       {copiedCode ? (
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <polyline points="20 6 9 17 4 12"/>
                         </svg>
                       ) : (
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                         </svg>
@@ -1669,13 +1660,13 @@ const GroupStudy = () => {
                     </button>
                   </div>
                   {copiedCode && (
-                    <p className="copy-success">✓ Code copied to clipboard!</p>
+                    <p className="copy-success" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>✓ Code copied to clipboard!</p>
                   )}
-                  <p className="room-code-hint">Your friends can join by entering this code</p>
+                  <p className="room-code-hint" style={{ fontSize: '0.8rem', marginTop: '0.75rem', marginBottom: '0' }}>Your friends can join by entering this code</p>
                 </div>
               </div>
-              <div className="modal-actions">
-                <button className="btn-secondary" onClick={() => setShowRoomCodeModal(false)}>
+              <div className="modal-actions" style={{ padding: '1rem 1.5rem 1.5rem 1.5rem', marginTop: '0', gap: '0.75rem' }}>
+                <button className="btn-secondary" onClick={() => setShowRoomCodeModal(false)} style={{ flex: 1 }}>
                   Close
                 </button>
                 {competitionType === 'group' ? (
@@ -1686,6 +1677,7 @@ const GroupStudy = () => {
                       // Start polling for players - quiz will start when host clicks start
                       pollForGroupQuizPlayers(createdRoomCode);
                     }}
+                    style={{ flex: 1 }}
                   >
                     Wait for Players
                   </button>
@@ -1693,6 +1685,7 @@ const GroupStudy = () => {
                   <button 
                     className="btn-primary" 
                     onClick={handleJoinCreatedRoom}
+                    style={{ flex: 1 }}
                   >
                     Enter Room
                   </button>
@@ -1705,9 +1698,15 @@ const GroupStudy = () => {
         {/* Join Room Modal */}
         {showJoinRoomModal && (
           <div className="modal-overlay" onClick={() => setShowJoinRoomModal(false)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2>{studyMode === 'competition' && competitionType === 'group' ? 'Join Group Quiz' : 'Join Study Room'}</h2>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ 
+              maxWidth: '420px',
+              width: '90%',
+              padding: '0'
+            }}>
+              <div className="modal-header" style={{ padding: '1.5rem 1.5rem 1rem 1.5rem' }}>
+                <h2 style={{ fontSize: '1.25rem', margin: 0 }}>
+                  {studyMode === 'competition' && competitionType === 'group' ? 'Join Group Quiz' : 'Join Study Room'}
+                </h2>
                 <button className="modal-close" onClick={() => setShowJoinRoomModal(false)}>
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="18" y1="6" x2="6" y2="18"/>
@@ -1715,9 +1714,17 @@ const GroupStudy = () => {
                   </svg>
                 </button>
               </div>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label>Enter Room Code</label>
+              <div className="modal-body" style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label style={{ 
+                    display: 'block', 
+                    marginBottom: '0.5rem', 
+                    fontSize: '0.9rem', 
+                    fontWeight: '500',
+                    color: 'var(--text-primary)'
+                  }}>
+                    Enter Room Code
+                  </label>
                   <input
                     type="text"
                     className="form-input"
@@ -1725,29 +1732,192 @@ const GroupStudy = () => {
                     value={roomCode}
                     onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
                     onKeyPress={(e) => e.key === 'Enter' && handleJoinRoom()}
-                    style={{ textTransform: 'uppercase' }}
+                    style={{ 
+                      textTransform: 'uppercase',
+                      width: '100%',
+                      padding: '0.75rem',
+                      fontSize: '0.95rem'
+                    }}
                   />
-                  <p className="form-hint">
+                  <p className="form-hint" style={{ 
+                    fontSize: '0.8rem', 
+                    marginTop: '0.5rem',
+                    marginBottom: '0',
+                    color: 'var(--text-secondary)'
+                  }}>
                     {studyMode === 'competition' && competitionType === 'group' 
                       ? 'Enter the quiz room code from the host' 
                       : 'Ask your friend for the room code'}
                   </p>
                 </div>
                 {joinRoomError && (
-                  <div className="error-message">{joinRoomError}</div>
+                  <div className="error-message" style={{ 
+                    marginTop: '0.75rem',
+                    fontSize: '0.85rem'
+                  }}>
+                    {joinRoomError}
+                  </div>
                 )}
               </div>
-              <div className="modal-actions">
-                <button className="btn-secondary" onClick={() => setShowJoinRoomModal(false)}>
+              <div className="modal-actions" style={{ 
+                padding: '1rem 1.5rem 1.5rem 1.5rem', 
+                marginTop: '0',
+                display: 'flex',
+                justifyContent: 'center',
+                gap: '0.75rem'
+              }}>
+                <button 
+                  className="btn-secondary" 
+                  onClick={() => setShowJoinRoomModal(false)}
+                  style={{ 
+                    minWidth: '100px'
+                  }}
+                >
                   Cancel
                 </button>
                 <button 
                   className="btn-primary" 
                   onClick={handleJoinRoom}
                   disabled={isJoiningRoom}
+                  style={{ 
+                    minWidth: '100px'
+                  }}
                 >
                   {isJoiningRoom ? 'Joining...' : 'Join Room'}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Room Browser Modal */}
+        {showRoomBrowserModal && (
+          <div className="modal-overlay" onClick={() => setShowRoomBrowserModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px' }}>
+              <div className="modal-header">
+                <h2>📚 Study Rooms</h2>
+                <button className="modal-close" onClick={() => setShowRoomBrowserModal(false)}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+              <div className="modal-body" style={{ padding: '0' }}>
+                {/* Create Room Button at top */}
+                <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border)' }}>
+                  <button 
+                    className="btn-primary" 
+                    onClick={() => {
+                      setShowRoomBrowserModal(false);
+                      handleCreateRoom();
+                    }}
+                    disabled={isCreatingRoom}
+                    style={{ width: '100%' }}
+                  >
+                    {isCreatingRoom ? (
+                      <>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="spinner">
+                          <circle cx="12" cy="12" r="10" strokeDasharray="60" strokeDashoffset="30"/>
+                        </svg>
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <line x1="12" y1="5" x2="12" y2="19"/>
+                          <line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        Create New Room
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Room List */}
+                <div style={{ maxHeight: '400px', overflow: 'auto' }}>
+                  {availableRooms.length === 0 ? (
+                    <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                      <p>No active rooms available</p>
+                      <p style={{ fontSize: '0.9rem', marginTop: '0.5rem' }}>Create a new room to get started!</p>
+                    </div>
+                  ) : (
+                    availableRooms.map((room) => (
+                      <div 
+                        key={room.id}
+                        onClick={() => {
+                          // Close browser modal and show join room modal (user must enter code manually for security)
+                          setShowRoomBrowserModal(false);
+                          setRoomCode(''); // Clear room code - user must enter it manually
+                          setShowJoinRoomModal(true);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '1rem 1.5rem',
+                          borderBottom: '1px solid var(--border)',
+                          cursor: 'pointer',
+                          transition: 'background 0.2s',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-input)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        {/* Subject Icon */}
+                        <div style={{ 
+                          width: '40px', 
+                          height: '40px', 
+                          borderRadius: '50%', 
+                          background: 'var(--primary)', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          marginRight: '1rem',
+                          fontSize: '1.2rem'
+                        }}>
+                          📚
+                        </div>
+
+                        {/* Room Info */}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: '600', fontSize: '1rem', marginBottom: '0.25rem' }}>
+                            {room.name || room.roomName || 'Study Room'}
+                          </div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                            Host: {room.host || room.hostName}
+                            {room.participants !== undefined && ` • ${room.participants} participant${room.participants !== 1 ? 's' : ''}`}
+                          </div>
+                        </div>
+
+                        {/* Player Count */}
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '0.5rem',
+                          padding: '0.5rem 1rem',
+                          background: 'var(--bg-input)',
+                          borderRadius: '8px',
+                          fontSize: '0.9rem',
+                          fontWeight: '600'
+                        }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                          </svg>
+                          {room.players}/{room.maxPlayers}
+                        </div>
+
+                        {/* Join Arrow */}
+                        <div style={{ marginLeft: '1rem', color: 'var(--text-secondary)' }}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="9 18 15 12 9 6"/>
+                          </svg>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -2364,6 +2534,98 @@ const GroupStudy = () => {
         }}
         tutorial={tutorials.groupStudy}
       />
+
+      {/* Notification Modal */}
+      {showNotification && (
+        <div className="modal-overlay" style={{ zIndex: 10000 }}>
+          <div 
+            className="notification-modal" 
+            style={{
+              background: 'linear-gradient(135deg, #111f3a 0%, #0f1a2e 100%)',
+              border: `1px solid ${notificationType === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+              borderRadius: '16px',
+              padding: '2rem',
+              maxWidth: '400px',
+              width: '90%',
+              textAlign: 'center',
+              animation: 'slideUp 0.3s ease',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)'
+            }}
+          >
+            <div style={{
+              width: '64px',
+              height: '64px',
+              margin: '0 auto 1.5rem',
+              borderRadius: '50%',
+              background: notificationType === 'success' 
+                ? 'rgba(16, 185, 129, 0.1)' 
+                : 'rgba(239, 68, 68, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              {notificationType === 'success' ? (
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6L9 17l-5-5"/>
+                </svg>
+              ) : (
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              )}
+            </div>
+            <h3 style={{
+              fontSize: '1.25rem',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '0.75rem',
+              textAlign: 'center'
+            }}>
+              {notificationType === 'success' ? 'Success!' : 'Error'}
+            </h3>
+            <div style={{
+              fontSize: '1rem',
+              color: 'var(--text-secondary)',
+              marginBottom: '1.5rem',
+              lineHeight: '1.6',
+              whiteSpace: 'pre-line',
+              textAlign: 'center',
+              maxHeight: '300px',
+              overflowY: 'auto',
+              padding: '0.5rem'
+            }}>
+              {notificationMessage.split('\n').map((line, index) => (
+                <div key={index} style={{ marginBottom: line.trim() === '' ? '0.5rem' : '0.25rem', textAlign: 'center' }}>
+                  {line || '\u00A0'}
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowNotification(false)}
+              style={{
+                padding: '0.75rem 2rem',
+                background: notificationType === 'success' ? '#10b981' : '#ef4444',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '1rem',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

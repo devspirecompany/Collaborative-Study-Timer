@@ -8,6 +8,8 @@ const StudentLogin = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [loggedInUsername, setLoggedInUsername] = useState('');
   const navigate = useNavigate();
 
   const validateEmail = (email) => {
@@ -105,10 +107,13 @@ const StudentLogin = () => {
         }
         localStorage.setItem('currentUser', JSON.stringify(data.user));
         
-        showNotification('Login successful! Redirecting to SpireWorks...', 'success');
+        // Show success modal
+        setLoggedInUsername(data.user.username || data.user.firstName);
+        setShowSuccessModal(true);
+        
         setTimeout(() => {
           navigate('/student-dashboard');
-        }, 1200);
+        }, 2500);
       } else {
         showNotification(data.message || 'Invalid email or password', 'error');
       }
@@ -274,6 +279,27 @@ const StudentLogin = () => {
           </div>
         </div>
       </div>
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="modal-overlay">
+          <div className="success-modal">
+            <div className="modal-icon">
+              <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                <circle cx="32" cy="32" r="30" fill="#10b981" fillOpacity="0.1"/>
+                <circle cx="32" cy="32" r="24" fill="#10b981" fillOpacity="0.2"/>
+                <path d="M20 32l8 8 16-16" stroke="#10b981" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h2>✨ Login Successful!</h2>
+            <p className="welcome-message">Welcome back, <strong>{loggedInUsername}</strong>!</p>
+            <p className="redirect-message">Redirecting to your dashboard...</p>
+            <div className="loading-bar">
+              <div className="loading-fill"></div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes slideIn {

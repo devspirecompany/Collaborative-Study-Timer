@@ -38,14 +38,27 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // MongoDB Connection
 const connectDB = async () => {
   try {
+    // Default MongoDB URI uses port 27017 (standard MongoDB port)
     const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/spireworks';
-    console.log('🔌 Connecting to MongoDB:', mongoURI.replace(/\/\/.*@/, '//***@')); // Hide credentials if any
-    const conn = await mongoose.connect(mongoURI);
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-    console.log(`📊 Database Name: ${conn.connection.name}`);
-    console.log(`🔗 Connection State: ${conn.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+    const mongoPort = mongoURI.match(/:(\d+)/)?.[1] || '27017';
+    
+    console.log('🔌 Connecting to MongoDB...');
+    console.log(`   📍 URI: ${mongoURI.replace(/\/\/.*@/, '//***@')}`);
+    console.log(`   🔌 Port: ${mongoPort}`);
+    
+    const conn = await mongoose.connect(mongoURI, {
+      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+    });
+    
+    console.log(`✅ MongoDB Connected Successfully!`);
+    console.log(`   🖥️  Host: ${conn.connection.host}`);
+    console.log(`   📊 Database: ${conn.connection.name}`);
+    console.log(`   🔗 State: ${conn.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+    console.log(`   🔌 Port: ${mongoPort}`);
   } catch (error) {
     console.error('❌ MongoDB connection error:', error.message);
+    console.error('   💡 Make sure MongoDB is running on port 27017');
+    console.error('   💡 Check your MONGODB_URI in .env file');
     process.exit(1);
   }
 };
@@ -95,8 +108,13 @@ app.use((req, res) => {
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`\n🚀 Server running successfully!`);
+  console.log(`   🌐 Server Port: ${PORT}`);
+  console.log(`   🔌 MongoDB Port: 27017 (from MONGODB_URI)`);
+  console.log(`   📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`   🔗 API URL: http://localhost:${PORT}/api`);
+  console.log(`   📡 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+  console.log(`\n✅ Ready to accept requests!\n`);
 });
 
 module.exports = app;

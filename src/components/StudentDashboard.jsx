@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import '../styles/StudentDashboard.css';
 import '../styles/TutorialModal.css'; // For help button styles
 import Sidebar from './shared/sidebar.jsx';
@@ -9,6 +9,7 @@ import { getStudySessionStats, getProductivityData, getRecentActivities } from '
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
 
 const StudentDashboard = () => {
+  const navigate = useNavigate();
   // Get user data from localStorage
   const [userData, setUserData] = useState(() => {
     try {
@@ -60,7 +61,17 @@ const StudentDashboard = () => {
             fatigueLevel: 0
           };
           const recommended = await getRecommendedStudyDuration(studyData);
-          const minutes = typeof recommended === 'object' ? recommended.minutes : recommended;
+          // Handle both old format (number) and new format (object)
+          let minutes = typeof recommended === 'object' ? recommended.minutes : recommended;
+          
+          // Validate minutes - ensure it's a valid number
+          if (!minutes || isNaN(minutes) || minutes <= 0) {
+            console.warn('Invalid AI recommendation, using fallback: 25 minutes');
+            minutes = 25; // Default fallback
+          }
+          
+          // Ensure minutes is within reasonable bounds (5-60 minutes)
+          minutes = Math.max(5, Math.min(60, Math.round(minutes)));
           setTimeRemaining(minutes * 60);
         } else {
           // Set default if API fails
@@ -112,6 +123,8 @@ const StudentDashboard = () => {
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
+        console.log('📊 Fetching dashboard data for userId:', userId);
+        
         // Use Promise.allSettled to prevent one failing request from blocking others
         const [statsResponse, productivityResponse, activitiesResponse] = await Promise.allSettled([
           getStudySessionStats(userId, 'week'),
@@ -121,88 +134,109 @@ const StudentDashboard = () => {
 
         // Handle stats response
         if (statsResponse.status === 'fulfilled' && statsResponse.value?.success) {
-          setDashboardStats({
-            todayStudyHours: statsResponse.value.stats?.todayStudyTime || 0,
-            weeklyProgress: statsResponse.value.stats?.totalStudyTime || 0,
-            studyStreak: 0,
-            activeGroups: 0
-          });
+          const stats = statsResponse.value.stats || {};
+          console.log('✅ Stats received:', stats);
+          
+          setDashboardStats(prev => ({
+            ...prev,
+            todayStudyHours: stats.todayStudyTime || 0, // Already in hours
+            weeklyProgress: stats.totalStudyTime || 0 // Already in hours
+          }));
+        } else {
+          console.warn('⚠️ Stats request failed:', statsResponse.status === 'rejected' ? statsResponse.reason : statsResponse.value);
+          // Set default values if stats request fails
+          setDashboardStats(prev => ({
+            ...prev,
+            todayStudyHours: 0,
+            weeklyProgress: 0
+          }));
         }
 
         // Handle productivity response
         if (productivityResponse.status === 'fulfilled' && productivityResponse.value?.success) {
-          if (productivityResponse.value.data?.weeklyData) {
-            setWeeklyData(productivityResponse.value.data.weeklyData);
+          const productivityData = productivityResponse.value.data || {};
+          console.log('✅ Productivity data received:', productivityData);
+          
+          // Update weekly data for chart
+          if (productivityData.weeklyData && Array.isArray(productivityData.weeklyData)) {
+            // Ensure weekly data is properly formatted (in hours)
+            const formattedWeeklyData = productivityData.weeklyData.map(day => ({
+              day: day.day || day.date || '',
+              hours: typeof day.hours === 'number' 
+                ? day.hours 
+                : typeof day.studyTime === 'number' 
+                  ? day.studyTime / 3600 // Convert seconds to hours
+                  : 0
+            }));
+            setWeeklyData(formattedWeeklyData);
+            console.log('📈 Weekly data set:', formattedWeeklyData);
           }
-          if (productivityResponse.value.data?.currentStreak) {
+          
+          // Update streak from productivity data
+          if (productivityData.currentStreak !== undefined) {
             setDashboardStats(prev => ({
               ...prev,
-              studyStreak: productivityResponse.value.data.currentStreak
+              studyStreak: productivityData.currentStreak || 0
             }));
           }
+          
+          // Also update weekly progress from productivity data if available (prefer stats if both exist)
+          if (productivityData.totalStudyTime !== undefined && !statsResponse.value?.success) {
+            setDashboardStats(prev => ({
+              ...prev,
+              weeklyProgress: typeof productivityData.totalStudyTime === 'number' 
+                ? productivityData.totalStudyTime / 3600 // Convert seconds to hours
+                : productivityData.totalStudyTime
+            }));
+          }
+        } else {
+          console.warn('⚠️ Productivity request failed:', productivityResponse.status === 'rejected' ? productivityResponse.reason : productivityResponse.value);
         }
 
         // Handle activities response
         if (activitiesResponse.status === 'fulfilled' && activitiesResponse.value?.success && activitiesResponse.value.activities) {
+          console.log('✅ Activities received:', activitiesResponse.value.activities.length);
           setRecentActivities(activitiesResponse.value.activities);
         } else {
-          // Set default activities if backend fails
-          setRecentActivities([
-            {
-              type: 'achievement',
-              title: 'Achievement Unlocked!',
-              description: 'You\'ve earned the "Early Bird" badge for studying 5 days in a row before 8 AM',
-              timeAgo: '2 hours ago',
-              icon: 'achievement'
-            },
-            {
-              type: 'competition',
-              title: 'Joined Group Study',
-              description: 'You joined "CS101 Finals Prep" study group with 8 members',
-              timeAgo: '5 hours ago',
-              icon: 'competition'
-            },
-            {
-              type: 'study_session',
-              title: 'Study Session Completed',
-              description: 'Completed 2-hour focus session on Data Structures',
-              timeAgo: 'Yesterday',
-              icon: 'session'
-            }
-          ]);
+          console.warn('⚠️ Activities request failed, using empty array');
+          // Use empty array instead of default activities - let users see they have no activities yet
+          setRecentActivities([]);
         }
+        
+        // Note: Active groups will need a separate endpoint
+        // For now, keeping it at 0
+        setDashboardStats(prev => ({
+          ...prev,
+          activeGroups: 0
+        }));
+        
       } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-        // Set default activities if backend fails
-        setRecentActivities([
-          {
-            type: 'achievement',
-            title: 'Achievement Unlocked!',
-            description: 'You\'ve earned the "Early Bird" badge for studying 5 days in a row before 8 AM',
-            timeAgo: '2 hours ago',
-            icon: 'achievement'
-          },
-          {
-            type: 'competition',
-            title: 'Joined Group Study',
-            description: 'You joined "CS101 Finals Prep" study group with 8 members',
-            timeAgo: '5 hours ago',
-            icon: 'competition'
-          },
-          {
-            type: 'study_session',
-            title: 'Study Session Completed',
-            description: 'Completed 2-hour focus session on Data Structures',
-            timeAgo: 'Yesterday',
-            icon: 'session'
-          }
+        console.error('❌ Error fetching dashboard data:', error);
+        // Set default values on error
+        setDashboardStats({
+          todayStudyHours: 0,
+          weeklyProgress: 0,
+          studyStreak: 0,
+          activeGroups: 0
+        });
+        setWeeklyData([
+          { day: 'Mon', hours: 0 },
+          { day: 'Tue', hours: 0 },
+          { day: 'Wed', hours: 0 },
+          { day: 'Thu', hours: 0 },
+          { day: 'Fri', hours: 0 },
+          { day: 'Sat', hours: 0 },
+          { day: 'Sun', hours: 0 }
         ]);
+        setRecentActivities([]);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchDashboardData();
+    if (userId) {
+      fetchDashboardData();
+    }
   }, [userId]);
   
   // UI states
@@ -240,7 +274,9 @@ const StudentDashboard = () => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const startTimer = () => setIsRunning(true);
+  const startTimer = () => {
+    navigate('/study-timer');
+  };
   const pauseTimer = () => setIsRunning(false);
   const resetTimer = async () => {
     setIsRunning(false);
@@ -251,8 +287,25 @@ const StudentDashboard = () => {
       timeOfDay: new Date().getHours(),
       fatigueLevel: 0
     };
-    const recommended = await getRecommendedStudyDuration(studyData);
-    setTimeRemaining(recommended * 60);
+    try {
+      const recommended = await getRecommendedStudyDuration(studyData);
+      // Handle both old format (number) and new format (object)
+      let minutes = typeof recommended === 'object' ? recommended.minutes : recommended;
+      
+      // Validate minutes - ensure it's a valid number
+      if (!minutes || isNaN(minutes) || minutes <= 0) {
+        console.warn('Invalid AI recommendation, using fallback: 25 minutes');
+        minutes = 25; // Default fallback
+      }
+      
+      // Ensure minutes is within reasonable bounds (5-60 minutes)
+      minutes = Math.max(5, Math.min(60, Math.round(minutes)));
+      setTimeRemaining(minutes * 60);
+    } catch (error) {
+      console.error('Error getting recommendation for reset:', error);
+      // Set default on error
+      setTimeRemaining(25 * 60);
+    }
   };
 
   const showTimerCompleteAlert = () => {
@@ -324,7 +377,15 @@ const StudentDashboard = () => {
               </div>
             </div>
             <div className="stat-label">Weekly Progress</div>
-            <div className="stat-value">{dashboardStats.weeklyProgress.toFixed(0)}h</div>
+            <div className="stat-value">
+              {(() => {
+                // Calculate from weeklyData if available, otherwise use dashboardStats
+                const totalHours = weeklyData.length > 0
+                  ? weeklyData.reduce((sum, day) => sum + (day.hours || 0), 0)
+                  : dashboardStats.weeklyProgress;
+                return totalHours.toFixed(1) + 'h';
+              })()}
+            </div>
             <div className="stat-footer">Target: 30 hours per week</div>
           </div>
 
@@ -436,9 +497,19 @@ const StudentDashboard = () => {
                   <div className="summary-content">
                     <div className="summary-label">Weekly Total</div>
                     <div className="summary-value">
-                      <span className="summary-highlight">
-                        {Math.floor(dashboardStats.weeklyProgress)}h {Math.round((dashboardStats.weeklyProgress % 1) * 60)}m
-                      </span> / 30h
+                      {(() => {
+                        // Calculate from weeklyData if available, otherwise use dashboardStats
+                        const totalHours = weeklyData.length > 0
+                          ? weeklyData.reduce((sum, day) => sum + (day.hours || 0), 0)
+                          : dashboardStats.weeklyProgress;
+                        const hours = Math.floor(totalHours);
+                        const minutes = Math.round((totalHours % 1) * 60);
+                        return (
+                          <span className="summary-highlight">
+                            {hours}h {minutes}m
+                          </span>
+                        );
+                      })()} / 30h
                     </div>
                   </div>
                 </div>
@@ -498,12 +569,6 @@ const StudentDashboard = () => {
                     </svg>
                   </button>
                 )}
-                <button className="timer-btn" id="resetBtn" onClick={resetTimer}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                    <path d="M3 3v5h5"></path>
-                  </svg>
-                </button>
               </div>
               <div style={{ marginTop: '1rem', textAlign: 'center' }}>
                 <Link to="/study-timer" style={{ color: 'var(--primary-light)', textDecoration: 'none', fontSize: '0.9rem' }}>

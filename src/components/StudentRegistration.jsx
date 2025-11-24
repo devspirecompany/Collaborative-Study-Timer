@@ -17,6 +17,8 @@ const StudentRegistration = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [registeredUsername, setRegisteredUsername] = useState('');
   const navigate = useNavigate();
 
   const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -118,13 +120,14 @@ const StudentRegistration = () => {
         // Save user data to localStorage (auto-login)
         localStorage.setItem('currentUser', JSON.stringify(data.user));
         
-        // Show success notification
-        alert(`🎉 Account created successfully!\n\nWelcome, ${data.user.username}!\n\nRedirecting to your dashboard...`);
+        // Show success modal
+        setRegisteredUsername(data.user.username);
+        setShowSuccessModal(true);
         
-        // Navigate directly to dashboard
+        // Navigate directly to dashboard after delay
         setTimeout(() => {
           navigate('/student-dashboard');
-        }, 500);
+        }, 2500);
       } else {
         console.error('❌ Registration failed:', data.message);
         alert(data.message || 'Registration failed. Please try again.');
@@ -375,6 +378,27 @@ const StudentRegistration = () => {
           </div>
         </div>
       </div>
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="modal-overlay">
+          <div className="success-modal">
+            <div className="modal-icon">
+              <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                <circle cx="32" cy="32" r="30" fill="#10b981" fillOpacity="0.1"/>
+                <circle cx="32" cy="32" r="24" fill="#10b981" fillOpacity="0.2"/>
+                <path d="M20 32l8 8 16-16" stroke="#10b981" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h2>🎉 Account Created Successfully!</h2>
+            <p className="welcome-message">Welcome, <strong>{registeredUsername}</strong>!</p>
+            <p className="redirect-message">Redirecting to your dashboard...</p>
+            <div className="loading-bar">
+              <div className="loading-fill"></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

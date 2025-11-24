@@ -2,7 +2,7 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import StudentLogin from './components/StudentLogin';
 import StudentRegistration from './components/StudentRegistration';
-import StudentDashboards from './components/StudentDashboard';
+import StudentDashboard from './components/StudentDashboard';
 import StudentStudyTimer from './components/StudentStudyTimer';
 import MyFiles from './components/MyFiles';
 import GroupStudy from './components/GroupStudy';
@@ -30,7 +30,7 @@ function App() {
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<StudentLogin />} />
       <Route path="/register" element={<StudentRegistration />} />
-      <Route path="/student-dashboard" element={<StudentDashboards />} />
+      <Route path="/student-dashboard" element={<StudentDashboard />} />
       <Route path="/study-timer" element={<StudentStudyTimer />} />
       <Route path="/my-files" element={<MyFiles />} />
       <Route path="/group-study" element={<GroupStudy />} />
