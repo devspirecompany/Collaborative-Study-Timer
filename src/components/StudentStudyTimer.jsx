@@ -25,7 +25,18 @@ const StudentStudyTimer = () => {
   const [completedSessions, setCompletedSessions] = useState(0);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [recentSessions, setRecentSessions] = useState([]);
-  const [userId] = useState('demo-user'); // In production, get from auth context
+  
+  // Get user data from localStorage (same pattern as StudentDashboard)
+  const [userData, setUserData] = useState(() => {
+    try {
+      const stored = localStorage.getItem('currentUser');
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+      return null;
+    }
+  });
+  const userId = userData?._id || userData?.id || 'demo-user';
 
   // Settings
   const [autoStartBreak, setAutoStartBreak] = useState(true);
@@ -55,6 +66,28 @@ const StudentStudyTimer = () => {
   const [confirmationMessage, setConfirmationMessage] = useState('');
   const [confirmationOnConfirm, setConfirmationOnConfirm] = useState(null);
   const [confirmationOnCancel, setConfirmationOnCancel] = useState(null);
+
+  // Update user data when localStorage changes (same pattern as StudentDashboard)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      try {
+        const stored = localStorage.getItem('currentUser');
+        if (stored) {
+          setUserData(JSON.parse(stored));
+        }
+      } catch (error) {
+        console.error('Error parsing user data:', error);
+      }
+    };
+    
+    // Check on mount
+    handleStorageChange();
+    
+    // Listen for storage events
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   // Handle reviewer from redirect (from ReviewerStudy or MyFiles)
   useEffect(() => {

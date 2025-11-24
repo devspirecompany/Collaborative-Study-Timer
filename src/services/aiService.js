@@ -1,7 +1,23 @@
 // AI Service for Study Timer and Question Generation
 // This service calls the backend API for AI features
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// Validate environment variable (reuse validation from apiService pattern)
+const validateApiUrl = () => {
+  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  
+  // Check if URL is valid
+  try {
+    new URL(apiUrl);
+  } catch (error) {
+    console.error('❌ Invalid REACT_APP_API_URL:', apiUrl);
+    console.error('   Please set a valid URL in your .env file: REACT_APP_API_URL=http://localhost:5000/api');
+    return 'http://localhost:5000/api'; // Fallback to default
+  }
+  
+  return apiUrl;
+};
+
+const API_BASE_URL = validateApiUrl();
 
 /**
  * Get AI-recommended study duration based on user's study history and goals

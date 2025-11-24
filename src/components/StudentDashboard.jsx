@@ -61,7 +61,17 @@ const StudentDashboard = () => {
             fatigueLevel: 0
           };
           const recommended = await getRecommendedStudyDuration(studyData);
-          const minutes = typeof recommended === 'object' ? recommended.minutes : recommended;
+          // Handle both old format (number) and new format (object)
+          let minutes = typeof recommended === 'object' ? recommended.minutes : recommended;
+          
+          // Validate minutes - ensure it's a valid number
+          if (!minutes || isNaN(minutes) || minutes <= 0) {
+            console.warn('Invalid AI recommendation, using fallback: 25 minutes');
+            minutes = 25; // Default fallback
+          }
+          
+          // Ensure minutes is within reasonable bounds (5-60 minutes)
+          minutes = Math.max(5, Math.min(60, Math.round(minutes)));
           setTimeRemaining(minutes * 60);
         } else {
           // Set default if API fails
@@ -277,8 +287,25 @@ const StudentDashboard = () => {
       timeOfDay: new Date().getHours(),
       fatigueLevel: 0
     };
-    const recommended = await getRecommendedStudyDuration(studyData);
-    setTimeRemaining(recommended * 60);
+    try {
+      const recommended = await getRecommendedStudyDuration(studyData);
+      // Handle both old format (number) and new format (object)
+      let minutes = typeof recommended === 'object' ? recommended.minutes : recommended;
+      
+      // Validate minutes - ensure it's a valid number
+      if (!minutes || isNaN(minutes) || minutes <= 0) {
+        console.warn('Invalid AI recommendation, using fallback: 25 minutes');
+        minutes = 25; // Default fallback
+      }
+      
+      // Ensure minutes is within reasonable bounds (5-60 minutes)
+      minutes = Math.max(5, Math.min(60, Math.round(minutes)));
+      setTimeRemaining(minutes * 60);
+    } catch (error) {
+      console.error('Error getting recommendation for reset:', error);
+      // Set default on error
+      setTimeRemaining(25 * 60);
+    }
   };
 
   const showTimerCompleteAlert = () => {

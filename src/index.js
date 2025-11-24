@@ -5,6 +5,33 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 
+// Validate environment variables on startup
+const validateEnvironment = () => {
+  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  
+  // Validate API URL format
+  try {
+    new URL(apiUrl);
+  } catch (error) {
+    console.error('❌ Invalid REACT_APP_API_URL environment variable:', apiUrl);
+    console.error('   Expected format: http://localhost:5000/api');
+    console.error('   Please check your .env file in the root directory');
+  }
+  
+  // Log configuration in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🚀 SpireWorks Frontend Starting...');
+    console.log('📍 API URL:', apiUrl);
+    if (!process.env.REACT_APP_API_URL) {
+      console.warn('⚠️  REACT_APP_API_URL not set, using default');
+      console.warn('   Create a .env file with: REACT_APP_API_URL=http://localhost:5000/api');
+    }
+  }
+};
+
+// Run validation
+validateEnvironment();
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
