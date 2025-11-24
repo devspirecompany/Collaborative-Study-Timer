@@ -11,6 +11,7 @@ import ProductivityTracker from './components/ProductivityTracker';
 import SoloPractice from './components/SoloPractice';
 import StudyRoom from './components/StudyRoom';
 import ReviewerStudy from './components/ReviewerStudy';
+import ProfileSettings from './components/ProfileSettings';
 import './styles/StudentDashboard.css';
 import './styles/StudentLogin.css';
 import './styles/StudentRegistration.css';
@@ -22,6 +23,7 @@ import './styles/ProductivityTracker.css';
 import './styles/SoloPractice.css';
 import './styles/StudyRoom.css';
 import './styles/ReviewerStudy.css';
+import './styles/ProfileSettings.css';
 
 function App() {
   return (
@@ -38,6 +40,7 @@ function App() {
       <Route path="/reviewer-study" element={<ReviewerStudy />} />
       <Route path="/achievements" element={<Achievements />} />
       <Route path="/productivity-tracker" element={<ProductivityTracker />} />
+      <Route path="/profile-settings" element={<ProfileSettings />} />
     </Routes>
   );
 }

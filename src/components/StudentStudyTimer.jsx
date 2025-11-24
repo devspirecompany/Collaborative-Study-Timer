@@ -2,9 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
+import ErrorModal from './shared/ErrorModal.jsx';
 import { getRecommendedStudyDuration } from '../services/aiService';
 import { createStudySession, getFiles, getFolders, getReviewers } from '../services/apiService';
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
+import { getSettings, updateSetting } from '../utils/settings';
+import '../styles/ErrorModal.css';
 
 const StudentStudyTimer = () => {
   const location = useLocation();
@@ -38,10 +41,11 @@ const StudentStudyTimer = () => {
   });
   const userId = userData?._id || userData?.id || 'demo-user';
 
-  // Settings
-  const [autoStartBreak, setAutoStartBreak] = useState(true);
-  const [autoStartStudy, setAutoStartStudy] = useState(false);
-  const [soundNotifications, setSoundNotifications] = useState(true);
+  // Settings - load from localStorage
+  const [settings, setSettings] = useState(() => getSettings());
+  const autoStartBreak = settings.autoStartBreak;
+  const autoStartStudy = settings.autoStartStudy;
+  const soundNotifications = settings.soundEnabled;
   const [desktopNotifications, setDesktopNotifications] = useState(true);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [hasCompletedStudySession, setHasCompletedStudySession] = useState(false);
@@ -56,10 +60,8 @@ const StudentStudyTimer = () => {
   const [isLoadingReviewers, setIsLoadingReviewers] = useState(false);
   const navigate = useNavigate();
   
-  // Notification Modal States
-  const [showNotification, setShowNotification] = useState(false);
-  const [notificationMessage, setNotificationMessage] = useState('');
-  const [notificationType, setNotificationType] = useState('error'); // 'success' or 'error'
+  // Error Modal State
+  const [errorModal, setErrorModal] = useState({ isOpen: false, title: '', message: '', details: null, type: 'error' });
   
   // Confirmation Modal States
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
@@ -319,16 +321,16 @@ const StudentStudyTimer = () => {
     }
   };
 
-  // Notification helper function
+  // Notification helper function - now uses ErrorModal
   const showNotificationModal = (message, type = 'error') => {
-    setNotificationMessage(message);
-    setNotificationType(type);
-    setShowNotification(true);
-    
-    // Auto-close after 3 seconds
-    setTimeout(() => {
-      setShowNotification(false);
-    }, 3000);
+    const title = type === 'success' ? 'Success' : type === 'error' ? 'Error' : 'Notification';
+    setErrorModal({
+      isOpen: true,
+      title: title,
+      message: message,
+      details: null,
+      type: type === 'success' ? 'success' : type === 'error' ? 'error' : 'info'
+    });
   };
 
   // Confirmation modal helper function
@@ -1192,7 +1194,10 @@ const StudentStudyTimer = () => {
                   <input
                     type="checkbox"
                     checked={autoStartBreak}
-                    onChange={(e) => setAutoStartBreak(e.target.checked)}
+                    onChange={(e) => {
+                      const updated = updateSetting('autoStartBreak', e.target.checked);
+                      setSettings(updated);
+                    }}
                   />
                   <span>Auto-start breaks</span>
                 </label>
@@ -1202,7 +1207,10 @@ const StudentStudyTimer = () => {
                   <input
                     type="checkbox"
                     checked={autoStartStudy}
-                    onChange={(e) => setAutoStartStudy(e.target.checked)}
+                    onChange={(e) => {
+                      const updated = updateSetting('autoStartStudy', e.target.checked);
+                      setSettings(updated);
+                    }}
                   />
                   <span>Auto-start study sessions</span>
                 </label>
@@ -1212,7 +1220,10 @@ const StudentStudyTimer = () => {
                   <input
                     type="checkbox"
                     checked={soundNotifications}
-                    onChange={(e) => setSoundNotifications(e.target.checked)}
+                    onChange={(e) => {
+                      const updated = updateSetting('soundEnabled', e.target.checked);
+                      setSettings(updated);
+                    }}
                   />
                   <span>Sound notifications</span>
                 </label>
@@ -1710,94 +1721,15 @@ const StudentStudyTimer = () => {
         </div>
       )}
 
-      {/* Notification Modal */}
-      {showNotification && (
-        <div className="modal-overlay" onClick={() => setShowNotification(false)} style={{ zIndex: 10000 }}>
-          <div 
-            className="notification-modal" 
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'linear-gradient(135deg, #111f3a 0%, #0f1a2e 100%)',
-              border: `1px solid ${notificationType === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-              borderRadius: '16px',
-              padding: '2rem',
-              maxWidth: '400px',
-              width: '90%',
-              textAlign: 'center',
-              animation: 'slideUp 0.3s ease',
-              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)'
-            }}
-          >
-            <div style={{
-              width: '64px',
-              height: '64px',
-              margin: '0 auto 1.5rem',
-              borderRadius: '50%',
-              background: notificationType === 'success' 
-                ? 'rgba(16, 185, 129, 0.1)' 
-                : 'rgba(239, 68, 68, 0.1)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              {notificationType === 'success' ? (
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 6L9 17l-5-5"/>
-                </svg>
-              ) : (
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"/>
-                  <line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              )}
-            </div>
-            <h3 style={{
-              fontSize: '1.25rem',
-              fontWeight: '600',
-              color: 'var(--text-primary)',
-              marginBottom: '0.75rem'
-            }}>
-              {notificationType === 'success' ? 'Success!' : 'Notice'}
-            </h3>
-            <div style={{
-              fontSize: '1rem',
-              color: 'var(--text-secondary)',
-              marginBottom: '1.5rem',
-              lineHeight: '1.6',
-              whiteSpace: 'pre-line',
-              textAlign: 'left',
-              maxHeight: '300px',
-              overflowY: 'auto',
-              padding: '0.5rem'
-            }}>
-              {notificationMessage.split('\n').map((line, index) => (
-                <div key={index} style={{ marginBottom: line.trim() === '' ? '0.5rem' : '0.25rem' }}>
-                  {line || '\u00A0'}
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={() => setShowNotification(false)}
-              style={{
-                padding: '0.75rem 2rem',
-                background: notificationType === 'success' ? '#10b981' : '#ef4444',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                fontWeight: '500',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                width: '100%'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-            >
-              OK
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Error/Info Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ isOpen: false, title: '', message: '', details: null, type: 'error' })}
+        title={errorModal.title}
+        message={errorModal.message}
+        details={errorModal.details}
+        type={errorModal.type}
+      />
 
       {/* Help Button */}
       <button 

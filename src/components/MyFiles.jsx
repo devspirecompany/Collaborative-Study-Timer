@@ -2,8 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
+import ErrorModal from './shared/ErrorModal.jsx';
+import ConfirmationModal from './shared/ConfirmationModal.jsx';
 import { getFiles, createFile, getFolders, createFolder, deleteFolder, deleteFile } from '../services/apiService';
 import '../styles/MyFiles.css';
+import '../styles/ErrorModal.css';
+import '../styles/ConfirmationModal.css';
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
 
 const MyFiles = () => {
@@ -22,6 +26,8 @@ const MyFiles = () => {
   const [folders, setFolders] = useState([]);
   const [showTutorial, setShowTutorial] = useState(false);
   const [deletingFileId, setDeletingFileId] = useState(null);
+  const [errorModal, setErrorModal] = useState({ isOpen: false, title: '', message: '', details: null, type: 'error' });
+  const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' });
 
   useEffect(() => {
     fetchFolders();
@@ -131,7 +137,13 @@ const MyFiles = () => {
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
-      alert('Please enter a folder name');
+      setErrorModal({
+        isOpen: true,
+        title: 'Validation Error',
+        message: 'Please enter a folder name',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
 
@@ -139,7 +151,13 @@ const MyFiles = () => {
     const folderNameLower = newFolderName.trim().toLowerCase();
     const existingFolder = folders.find(f => f.toLowerCase() === folderNameLower);
     if (existingFolder) {
-      alert(`Folder "${existingFolder}" already exists. Please choose a different name.`);
+      setErrorModal({
+        isOpen: true,
+        title: 'Folder Already Exists',
+        message: `Folder "${existingFolder}" already exists. Please choose a different name.`,
+        details: null,
+        type: 'warning'
+      });
       return;
     }
 
@@ -171,13 +189,25 @@ const MyFiles = () => {
         // Remove alert, UI update is instant
       } else {
         // Show the actual error message from backend
-        alert(response.message || 'Failed to create folder');
+        setErrorModal({
+          isOpen: true,
+          title: 'Failed to Create Folder',
+          message: response.message || 'Failed to create folder',
+          details: null,
+          type: 'error'
+        });
       }
     } catch (error) {
       console.error('Error creating folder:', error);
       // Show the error message from the backend
       const errorMessage = error.response?.message || error.message || 'Failed to create folder. It might already exist.';
-      alert(errorMessage);
+      setErrorModal({
+        isOpen: true,
+        title: 'Error Creating Folder',
+        message: errorMessage,
+        details: null,
+        type: 'error'
+      });
     } finally {
       setIsCreatingFolder(false);
     }
@@ -188,7 +218,13 @@ const MyFiles = () => {
     const targetFolder = selectedSubject || uploadFolder;
     
     if (!targetFolder || !uploadFile) {
-      alert('Please select a folder and choose a file');
+      setErrorModal({
+        isOpen: true,
+        title: 'Missing Information',
+        message: 'Please select a folder and choose a file',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
 
@@ -197,42 +233,54 @@ const MyFiles = () => {
     // Check if file type is supported (DOCX, TXT, MD only)
     const supportedTypes = ['txt', 'md', 'docx'];
     if (!supportedTypes.includes(fileType)) {
-      alert(`File type .${fileType} is not supported.\n\nSupported formats:\n• Word Document (.docx)\n• Text File (.txt)\n• Markdown (.md)\n\nNote: PDF files are not supported. Please convert to DOCX or TXT format.`);
+      setErrorModal({
+        isOpen: true,
+        title: 'Unsupported File Type',
+        message: `File type .${fileType} is not supported.`,
+        details: [
+          'Supported formats:',
+          '• Word Document (.docx)',
+          '• Text File (.txt)',
+          '• Markdown (.md)',
+          '',
+          'Note: PDF files are not supported. Please convert to DOCX or TXT format.'
+        ],
+        type: 'error'
+      });
       return;
     }
 
     // Validate file size (max 10MB for DOCX to avoid memory issues)
     const maxSize = 10 * 1024 * 1024; // 10MB
     if (uploadFile.size > maxSize) {
-      alert(`File is too large (${(uploadFile.size / 1024 / 1024).toFixed(2)}MB). Maximum file size is 10MB.`);
+      setErrorModal({
+        isOpen: true,
+        title: 'File Too Large',
+        message: `File is too large (${(uploadFile.size / 1024 / 1024).toFixed(2)}MB). Maximum file size is 10MB.`,
+        details: null,
+        type: 'error'
+      });
       return;
     }
 
-    // Warn for very large files
-    if (uploadFile.size > 5 * 1024 * 1024) {
-      const proceed = window.confirm(`This file is large (${(uploadFile.size / 1024 / 1024).toFixed(2)}MB). Processing may take longer. Continue?`);
-      if (!proceed) {
-        setIsUploading(false);
-        return;
-      }
-    }
-
-    setIsUploading(true);
-    try {
-      // Read file content
-      const reader = new FileReader();
-      
-      // For text files, read as text; for DOCX, read as data URL (base64)
-      if (fileType === 'txt' || fileType === 'md') {
-        reader.readAsText(uploadFile);
-      } else if (fileType === 'docx') {
-        // For DOCX, read as data URL (base64)
-        // Backend will extract text using mammoth
-        reader.readAsDataURL(uploadFile);
-      }
-      
-          reader.onload = async (e) => {
-        try {
+    // Define upload function
+    const performFileUpload = () => {
+      setIsUploading(true);
+      try {
+        // Read file content
+        const reader = new FileReader();
+        
+        // For text files, read as text; for DOCX, read as data URL (base64)
+        if (fileType === 'txt' || fileType === 'md') {
+          reader.readAsText(uploadFile);
+        } else if (fileType === 'docx') {
+          // For DOCX, read as data URL (base64)
+          // Backend will extract text using mammoth
+          reader.readAsDataURL(uploadFile);
+        }
+        
+        reader.onload = async (e) => {
+          try {
           let fileContent = e.target.result;
           
           // For DOCX, send base64 data to backend
@@ -256,14 +304,26 @@ const MyFiles = () => {
             
             // Show success message with file type info
             const fileTypeName = fileType === 'docx' ? 'Word Document' : fileType.toUpperCase();
-            alert(`✅ ${fileTypeName} file "${uploadFile.name}" uploaded successfully to "${targetFolder}"!\n\nThe file content has been extracted and is ready for AI question generation.`);
+            setErrorModal({
+              isOpen: true,
+              title: 'File Uploaded Successfully!',
+              message: `${fileTypeName} file "${uploadFile.name}" uploaded successfully to "${targetFolder}"!`,
+              details: ['The file content has been extracted and is ready for AI question generation.'],
+              type: 'success'
+            });
             
             // Auto-select the folder if not already selected
             if (!selectedSubject) {
               setSelectedSubject(targetFolder);
             }
           } else {
-            alert(response.message || 'Failed to upload file');
+            setErrorModal({
+              isOpen: true,
+              title: 'Upload Failed',
+              message: response.message || 'Failed to upload file',
+              details: null,
+              type: 'error'
+            });
           }
         } catch (error) {
           console.error('❌ Error uploading file:', error);
@@ -307,64 +367,148 @@ const MyFiles = () => {
           
           console.error('Final error message to display:', errorMessage);
           
-          alert(`Failed to upload file: ${errorMessage}\n\nPlease check:\n• File is not corrupted\n• File contains readable text\n• Backend server is running on port 5000\n• File size is under 10MB\n• File is a valid DOCX, TXT, or MD file`);
+          setErrorModal({
+            isOpen: true,
+            title: 'Upload Failed',
+            message: `Failed to upload file: ${errorMessage}`,
+            details: [
+              'Please check:',
+              '• File is not corrupted',
+              '• File contains readable text',
+              '• Backend server is running on port 5000',
+              '• File size is under 10MB',
+              '• File is a valid DOCX, TXT, or MD file'
+            ],
+            type: 'error'
+          });
         } finally {
           setIsUploading(false);
         }
       };
       
       reader.onerror = () => {
-        alert('Error reading file. Please try again.');
+        setErrorModal({
+          isOpen: true,
+          title: 'File Read Error',
+          message: 'Error reading file. Please try again.',
+          details: null,
+          type: 'error'
+        });
         setIsUploading(false);
       };
     } catch (error) {
       console.error('Error uploading file:', error);
-      alert('Failed to upload file');
+      setErrorModal({
+        isOpen: true,
+        title: 'Upload Failed',
+        message: 'Failed to upload file',
+        details: null,
+        type: 'error'
+      });
       setIsUploading(false);
     }
   };
 
-  const handleDeleteFolder = async (folderName) => {
-    if (!window.confirm(`Delete folder "${folderName}"? This will only work if the folder is empty.`)) {
+    // Warn for very large files
+    if (uploadFile.size > 5 * 1024 * 1024) {
+      setConfirmationModal({
+        isOpen: true,
+        title: 'Large File Warning',
+        message: `This file is large (${(uploadFile.size / 1024 / 1024).toFixed(2)}MB). Processing may take longer. Continue?`,
+        onConfirm: () => {
+          setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' });
+          performFileUpload();
+        },
+        onClose: () => {
+          setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' });
+        },
+        type: 'warning'
+      });
       return;
     }
 
-    try {
-      // Find folder ID
-      const foldersResponse = await getFolders(userId);
-      if (foldersResponse.success) {
-        const folder = foldersResponse.folders.find(f => f.folderName === folderName);
-        if (folder) {
-          const response = await deleteFolder(folder._id);
-          if (response.success) {
-            await fetchFolders();
-            await fetchFiles();
-            if (selectedSubject === folderName) {
-              setSelectedSubject(null);
+    performFileUpload();
+  };
+
+  const handleDeleteFolder = (folderName) => {
+    setConfirmationModal({
+      isOpen: true,
+      title: 'Delete Folder',
+      message: `Delete folder "${folderName}"? This will only work if the folder is empty.`,
+      onConfirm: async () => {
+        try {
+          // Find folder ID
+          const foldersResponse = await getFolders(userId);
+          if (foldersResponse.success) {
+            const folder = foldersResponse.folders.find(f => f.folderName === folderName);
+            if (folder) {
+              const response = await deleteFolder(folder._id);
+              if (response.success) {
+                await fetchFolders();
+                await fetchFiles();
+                if (selectedSubject === folderName) {
+                  setSelectedSubject(null);
+                }
+                setErrorModal({
+                  isOpen: true,
+                  title: 'Folder Deleted',
+                  message: `Folder "${folderName}" deleted successfully!`,
+                  details: null,
+                  type: 'success'
+                });
+              } else {
+                setErrorModal({
+                  isOpen: true,
+                  title: 'Delete Failed',
+                  message: response.message || 'Failed to delete folder',
+                  details: null,
+                  type: 'error'
+                });
+              }
             }
-            alert(`Folder "${folderName}" deleted successfully!`);
-          } else {
-            alert(response.message || 'Failed to delete folder');
           }
+        } catch (error) {
+          console.error('Error deleting folder:', error);
+          setErrorModal({
+            isOpen: true,
+            title: 'Delete Failed',
+            message: 'Failed to delete folder',
+            details: null,
+            type: 'error'
+          });
         }
-      }
-    } catch (error) {
-      console.error('Error deleting folder:', error);
-      alert('Failed to delete folder');
-    }
+        setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' });
+      },
+      onClose: () => {
+        setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' });
+      },
+      type: 'warning'
+    });
   };
 
   const handleDeleteFile = async (file) => {
     // Validation
     if (!file) {
       console.error('No file provided to delete');
-      alert('Error: No file selected for deletion.');
+      setErrorModal({
+        isOpen: true,
+        title: 'Validation Error',
+        message: 'No file selected for deletion.',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
 
     if (!file.id) {
       console.error('File missing ID:', file);
-      alert('Error: File is missing an ID. Cannot delete.');
+      setErrorModal({
+        isOpen: true,
+        title: 'Validation Error',
+        message: 'File is missing an ID. Cannot delete.',
+        details: null,
+        type: 'error'
+      });
       return;
     }
 
@@ -375,10 +519,11 @@ const MyFiles = () => {
     }
 
     // Confirmation dialog
-    const confirmDelete = window.confirm(`Delete file "${file.name}"?\n\nThis action cannot be undone.`);
-    if (!confirmDelete) {
-      return;
-    }
+    setConfirmationModal({
+      isOpen: true,
+      title: 'Delete File',
+      message: `Delete file "${file.name}"?\n\nThis action cannot be undone.`,
+      onConfirm: async () => {
 
     // Set loading state
     setDeletingFileId(file.id);
@@ -411,12 +556,24 @@ const MyFiles = () => {
         await fetchFiles();
         console.log('✅ Files refreshed from backend');
         
-        alert(`File "${file.name}" deleted successfully!`);
+        setErrorModal({
+          isOpen: true,
+          title: 'File Deleted',
+          message: `File "${file.name}" deleted successfully!`,
+          details: null,
+          type: 'success'
+        });
       } else {
         // Handle error response
         const errorMsg = response?.message || response?.error || 'Failed to delete file';
         console.error('❌ Delete failed:', errorMsg);
-        alert(`Failed to delete file: ${errorMsg}`);
+        setErrorModal({
+          isOpen: true,
+          title: 'Delete Failed',
+          message: `Failed to delete file: ${errorMsg}`,
+          details: null,
+          type: 'error'
+        });
       }
     } catch (error) {
       // Handle network/API errors
@@ -440,11 +597,25 @@ const MyFiles = () => {
       // Remove "Error: " prefix if present
       errorMessage = errorMessage.replace(/^Error:\s*/i, '');
       
-      alert(`Failed to delete file: ${errorMessage}\n\nPlease check:\n• Backend server is running\n• File exists in the database\n• You have permission to delete this file`);
+      setErrorModal({
+        isOpen: true,
+        title: 'Delete Failed',
+        message: `Failed to delete file: ${errorMessage}`,
+        details: [
+          'Please check:',
+          '• Backend server is running',
+          '• File exists in the database',
+          '• You have permission to delete this file'
+        ],
+        type: 'error'
+      });
     } finally {
       // Always clear loading state
       setDeletingFileId(null);
     }
+  },
+  type: 'danger'
+});
   };
 
   const getFileIcon = (type) => {
@@ -903,6 +1074,26 @@ const MyFiles = () => {
           }
         }}
         tutorial={tutorials.myFiles}
+      />
+
+      {/* Error Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ isOpen: false, title: '', message: '', details: null, type: 'error' })}
+        title={errorModal.title}
+        message={errorModal.message}
+        details={errorModal.details}
+        type={errorModal.type}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmationModal.isOpen}
+        onClose={() => setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' })}
+        onConfirm={confirmationModal.onConfirm || (() => {})}
+        title={confirmationModal.title}
+        message={confirmationModal.message}
+        type={confirmationModal.type}
       />
     </div>
   );

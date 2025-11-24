@@ -22,16 +22,37 @@ if (gemini && process.env.GEMINI_API_KEY) {
   console.log(`🔑 Gemini API Key: ${keyPreview} (${process.env.GEMINI_API_KEY.length} chars)`);
 }
 
-// Log AI service status on startup (async test will happen on first request)
+// Log AI service status on startup
 if (gemini) {
   console.log('✅ Gemini AI initialized and ready');
   console.log('   📝 Using FREE tier models: gemini-1.5-flash, gemini-1.5-flash-latest');
-  console.log('   🔍 API key will be validated on first AI request');
+  console.log('   🔍 Test Gemini at: GET /api/ai/test-gemini');
+  
+  // Async test on startup (non-blocking)
+  (async () => {
+    try {
+      const testModel = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const testResult = await testModel.generateContent('test');
+      const testResponse = await testResult.response;
+      if (testResponse.text()) {
+        console.log('   ✅ Gemini API key validated successfully on startup');
+      }
+    } catch (startupError) {
+      console.log('   ⚠️  Gemini API key validation failed on startup:', startupError.message);
+      console.log('   💡 This might be a temporary issue. Test at: GET /api/ai/test-gemini');
+    }
+  })();
 } else {
   console.log('⚠️  Gemini AI not configured - set GEMINI_API_KEY in server/.env file to enable AI question generation');
   console.log('   📝 Get FREE API key from: https://aistudio.google.com/app/apikey');
+  console.log('   🔍 After adding key, test at: GET /api/ai/test-gemini');
   if (process.env.GEMINI_API_KEY) {
-    console.log('   ⚠️  GEMINI_API_KEY exists in env but Gemini not initialized - check if API key format is correct');
+    const isPlaceholder = process.env.GEMINI_API_KEY === 'your-gemini-api-key-here';
+    if (isPlaceholder) {
+      console.log('   ⚠️  GEMINI_API_KEY is set to placeholder - replace with actual API key');
+    } else {
+      console.log('   ⚠️  GEMINI_API_KEY exists in env but Gemini not initialized - check if API key format is correct');
+    }
   }
 }
 
@@ -165,6 +186,135 @@ Provide a motivational or analytical insight. Keep it short and encouraging.`;
 });
 
 /**
+ * GET /api/ai/test-gemini
+ * Comprehensive test endpoint to verify Gemini is working
+ */
+router.get('/test-gemini', async (req, res) => {
+  console.log('\n🧪 ===== Gemini Test Request =====');
+  
+  // Check if API key exists in environment
+  const hasApiKey = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your-gemini-api-key-here';
+  const isPlaceholder = process.env.GEMINI_API_KEY === 'your-gemini-api-key-here';
+  
+  const testResults = {
+    apiKeyConfigured: hasApiKey,
+    isPlaceholder: isPlaceholder,
+    geminiInitialized: gemini !== null,
+    models: [],
+    overallStatus: 'unknown',
+    recommendations: []
+  };
+
+  if (!hasApiKey) {
+    testResults.overallStatus = 'no_api_key';
+    testResults.recommendations.push('Add GEMINI_API_KEY to server/.env file');
+    testResults.recommendations.push('Get FREE API key from: https://aistudio.google.com/app/apikey');
+    return res.json({
+      success: false,
+      ...testResults,
+      message: 'GEMINI_API_KEY not configured in server/.env file'
+    });
+  }
+
+  if (isPlaceholder) {
+    testResults.overallStatus = 'placeholder_key';
+    testResults.recommendations.push('Replace placeholder with actual API key from https://aistudio.google.com/app/apikey');
+    testResults.recommendations.push('Restart backend server after updating .env file');
+    return res.json({
+      success: false,
+      ...testResults,
+      message: 'GEMINI_API_KEY is set to placeholder value. Please add your actual API key.'
+    });
+  }
+
+  if (!gemini) {
+    testResults.overallStatus = 'not_initialized';
+    testResults.recommendations.push('Restart backend server - Gemini should initialize on startup');
+    testResults.recommendations.push('Check server console for initialization errors');
+    return res.json({
+      success: false,
+      ...testResults,
+      message: 'Gemini not initialized. Restart the backend server.'
+    });
+  }
+
+  // Test models
+  const modelsToTest = [
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-pro',
+    'gemini-pro'
+  ];
+
+  let workingModel = null;
+
+  for (const modelName of modelsToTest) {
+    try {
+      console.log(`🔍 Testing model: ${modelName}...`);
+      const model = gemini.getGenerativeModel({ model: modelName });
+      const startTime = Date.now();
+      const testResult = await model.generateContent('Say "Gemini is working!"');
+      const response = await testResult.response;
+      const responseText = response.text();
+      const duration = Date.now() - startTime;
+      
+      if (responseText && responseText.length > 0) {
+        testResults.models.push({
+          model: modelName,
+          status: '✅ WORKING',
+          response: responseText.substring(0, 100),
+          responseTime: `${duration}ms`
+        });
+        if (!workingModel) {
+          workingModel = modelName;
+        }
+        console.log(`✅ ${modelName} is working! (${duration}ms)`);
+      } else {
+        testResults.models.push({
+          model: modelName,
+          status: '⚠️  NO RESPONSE',
+          error: 'Model responded but response was empty'
+        });
+      }
+    } catch (error) {
+      const errorMsg = error.message || error.toString();
+      testResults.models.push({
+        model: modelName,
+        status: '❌ FAILED',
+        error: errorMsg.substring(0, 200)
+      });
+      console.error(`❌ ${modelName} failed:`, errorMsg);
+    }
+  }
+
+  // Determine overall status
+  if (workingModel) {
+    testResults.overallStatus = 'working';
+    testResults.recommendations.push(`✅ Gemini is working! Using model: ${workingModel}`);
+    testResults.recommendations.push('You can now use AI features: question generation, file extraction, study recommendations');
+  } else {
+    testResults.overallStatus = 'all_models_failed';
+    testResults.recommendations.push('All models failed - check API key validity');
+    testResults.recommendations.push('Verify API key at: https://aistudio.google.com/app/apikey');
+    testResults.recommendations.push('Make sure you\'re using a FREE tier API key');
+  }
+
+  console.log(`\n✅ Test complete. Status: ${testResults.overallStatus}`);
+  if (workingModel) {
+    console.log(`✅ Working model: ${workingModel}`);
+  }
+
+  return res.json({
+    success: workingModel !== null,
+    ...testResults,
+    workingModel: workingModel,
+    message: workingModel 
+      ? `Gemini is working! Using model: ${workingModel}` 
+      : 'All Gemini models failed. Check your API key.'
+  });
+});
+
+/**
  * GET /api/ai/test-models
  * Test which Gemini models are available with the current API key
  */
@@ -248,6 +398,7 @@ router.post('/generate-questions', async (req, res) => {
     let method = 'fallback'; // Track which method was used
 
     // Try to use AI (Gemini FREE or OpenAI if configured)
+    // ALWAYS attempt AI first - it's the primary method
     try {
       // Check if Gemini is available
       if (!gemini) {
@@ -257,10 +408,26 @@ router.post('/generate-questions', async (req, res) => {
           const isPlaceholder = process.env.GEMINI_API_KEY === 'your-gemini-api-key-here';
           console.error('   ⚠️  API key is placeholder:', isPlaceholder ? 'YES - Replace with real key!' : 'NO');
           if (isPlaceholder) {
-            throw new Error('GEMINI_API_KEY is set to placeholder value. Please replace "your-gemini-api-key-here" with your actual Gemini API key in server/.env file and restart the backend server.');
+            // Try to reinitialize with the key from env (in case it was set after server start)
+            try {
+              const { GoogleGenerativeAI } = require('@google/generative-ai');
+              const newGemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+              console.log('🔄 Attempting to initialize Gemini with env key...');
+              // Test it
+              const testModel = newGemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+              const testResult = await testModel.generateContent('test');
+              if (testResult) {
+                console.log('✅ Successfully initialized Gemini!');
+                // Update the global gemini reference (would need to be refactored to work)
+                throw new Error('GEMINI_API_KEY is set to placeholder value. Please replace "your-gemini-api-key-here" with your actual Gemini API key in server/.env file and restart the backend server.');
+              }
+            } catch (initError) {
+              throw new Error('GEMINI_API_KEY is set to placeholder value. Please replace "your-gemini-api-key-here" with your actual Gemini API key in server/.env file and restart the backend server.');
+            }
           }
         }
-        throw new Error('Gemini API key not configured. Please set GEMINI_API_KEY in server/.env file and restart the backend server.');
+        // Don't throw error yet - try OpenAI fallback first
+        console.warn('⚠️  Gemini not available, will try OpenAI fallback if configured');
       }
       
       // Use Gemini (FREE) as primary AI
@@ -270,10 +437,11 @@ router.post('/generate-questions', async (req, res) => {
       let modelName = 'gemini-1.5-flash'; // FREE tier model
       let modelWorked = false;
       
-      // Try different FREE tier model names
+      // Try different FREE tier model names with retry logic
       const freeTierModels = [
         'gemini-1.5-flash',
         'gemini-1.5-flash-latest',
+        'gemini-1.5-pro', // Try pro version if available
         'gemini-pro' // Older model, may still work
       ];
       
@@ -282,38 +450,38 @@ router.post('/generate-questions', async (req, res) => {
           console.log(`🔍 Trying Gemini model: ${testModelName}...`);
           model = gemini.getGenerativeModel({ model: testModelName });
           
-          // Quick test to verify model works
-          console.log('🧪 Testing model with a small API call...');
-          const testResult = await model.generateContent('Say "test"');
-          const testResponse = await testResult.response;
-          const testText = testResponse.text();
-          
-          if (testText && testText.length > 0) {
-            modelName = testModelName;
-            modelWorked = true;
-            console.log(`✅ Model ${modelName} is working! Test response: ${testText.substring(0, 50)}`);
-            break;
-          }
+          // Skip test call for faster processing - just try to generate questions directly
+          // The actual question generation will validate the model works
+          modelName = testModelName;
+          modelWorked = true;
+          console.log(`✅ Model ${modelName} initialized successfully`);
+          break;
         } catch (testError) {
           console.log(`⚠️ Model ${testModelName} failed: ${testError.message}`);
+          // Check if it's a model name error vs API key error
+          if (testError.message?.includes('API') || testError.message?.includes('key')) {
+            // API key issue - don't try other models
+            throw testError;
+          }
           continue; // Try next model
         }
       }
       
-      if (!modelWorked) {
+      if (!modelWorked || !model) {
         throw new Error(`All Gemini models failed. Please verify your API key at https://aistudio.google.com/app/apikey. Make sure you're using a FREE tier API key from Google AI Studio.`);
       }
       
       console.log(`✅ Using Gemini model: ${modelName}`);
       
-      // Increase content limit - Gemini Pro can handle up to ~30k tokens
-      // Use more content for better question quality (up to 20k characters)
-      const contentPreview = fileContent.length > 20000 
-        ? fileContent.substring(0, 20000) + '\n\n[... content continues ...]' 
+      // Increase content limit - Gemini 1.5 Flash can handle up to ~1M tokens (much more than before)
+      // Use more content for better question quality (up to 50k characters for better coverage)
+      const maxContentLength = 50000; // Increased from 20k for better question quality
+      const contentPreview = fileContent.length > maxContentLength 
+        ? fileContent.substring(0, maxContentLength) + '\n\n[... content continues ...]' 
         : fileContent;
       
-      console.log(`\n🤖 ===== Using Gemini AI =====`);
-      console.log(`📝 Sending ${contentPreview.length} characters to Gemini AI`);
+      console.log(`\n🤖 ===== Using Gemini AI for Question Generation =====`);
+      console.log(`📝 Sending ${contentPreview.length} characters to Gemini AI (out of ${fileContent.length} total)`);
       console.log(`📄 Content preview (first 500 chars): ${contentPreview.substring(0, 500)}...`);
       
       const startTime = Date.now();
@@ -322,18 +490,47 @@ router.post('/generate-questions', async (req, res) => {
       const prompt = generatePromptForTestType(testType, numQuestions, subject, contentPreview);
 
       console.log('📤 Sending request to Gemini API...');
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const aiResponse = response.text().trim();
+      console.log(`⏱️  Request started at: ${new Date().toISOString()}`);
+      
+      // Add retry logic for transient errors
+      let result;
+      let response;
+      let aiResponse;
+      let retries = 2; // Try up to 2 retries
+      
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log(`🔄 Retry attempt ${attempt}/${retries}...`);
+            // Wait a bit before retry (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          }
+          
+          result = await model.generateContent(prompt);
+          response = await result.response;
+          aiResponse = response.text().trim();
+          break; // Success, exit retry loop
+        } catch (retryError) {
+          if (attempt === retries) {
+            throw retryError; // Last attempt failed
+          }
+          console.warn(`⚠️  Attempt ${attempt + 1} failed: ${retryError.message}, retrying...`);
+        }
+      }
+      
       console.log('📥 Received response from Gemini API');
+      console.log(`⏱️  Request completed in: ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
       console.log('📄 Response length:', aiResponse.length);
       console.log('📄 Response preview (first 200 chars):', aiResponse.substring(0, 200));
       
       // Extract JSON from response (remove markdown code blocks if present)
       let jsonString = aiResponse;
-      // Remove markdown code blocks
+      // Remove markdown code blocks and any leading/trailing text
       jsonString = jsonString.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      // Extract JSON array - try multiple patterns
+      // Remove any explanatory text before/after JSON
+      jsonString = jsonString.replace(/^[^{[]*/, '').replace(/[^}\]]*$/, '');
+      
+      // Extract JSON array - try multiple patterns with better error handling
       let jsonMatch = jsonString.match(/\[[\s\S]*\]/);
       
       // If no array found, try to find JSON object with questions array
@@ -342,13 +539,14 @@ router.post('/generate-questions', async (req, res) => {
         if (objectMatch) {
           try {
             const parsed = JSON.parse(objectMatch[0]);
-            if (parsed.questions && Array.isArray(parsed.questions)) {
+            if (parsed.questions && Array.isArray(parsed.questions) && parsed.questions.length > 0) {
               questions = parsed.questions;
               method = 'gemini-ai';
               const duration = ((Date.now() - startTime) / 1000).toFixed(2);
               console.log(`✅ Successfully generated ${questions.length} questions using Gemini AI (took ${duration}s)`);
             }
           } catch (e) {
+            console.warn('⚠️  Failed to parse questions object:', e.message);
             // Continue to try array pattern
           }
         }
@@ -359,25 +557,90 @@ router.post('/generate-questions', async (req, res) => {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            questions = parsed;
-            method = 'gemini-ai';
-            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-            console.log(`✅ Successfully generated ${questions.length} questions using Gemini AI (took ${duration}s)`);
+            // Validate question structure
+            const validQuestions = parsed.filter(q => 
+              q.question && 
+              q.options && 
+              Array.isArray(q.options) && 
+              q.options.length >= 2 &&
+              typeof q.correctAnswer === 'number'
+            );
+            
+            if (validQuestions.length > 0) {
+              questions = validQuestions;
+              method = 'gemini-ai';
+              const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+              console.log(`✅ Successfully generated ${questions.length} questions using Gemini AI (took ${duration}s)`);
+            } else {
+              throw new Error('Parsed array contains no valid questions');
+            }
           } else {
             throw new Error('Parsed array is empty or invalid');
           }
         } catch (parseError) {
           console.error('❌ JSON parse error:', parseError.message);
-          console.error('Attempted to parse:', jsonMatch[0].substring(0, 200));
-          throw new Error(`Could not parse JSON from AI response: ${parseError.message}`);
+          console.error('Attempted to parse:', jsonMatch[0].substring(0, 500));
+          
+          // Try to fix common JSON issues and retry
+          try {
+            // Try fixing common issues: trailing commas, unquoted keys, etc.
+            let fixedJson = jsonMatch[0]
+              .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
+              .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3'); // Quote unquoted keys
+            
+            const parsed = JSON.parse(fixedJson);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              questions = parsed;
+              method = 'gemini-ai';
+              console.log(`✅ Successfully parsed after fixing JSON issues: ${questions.length} questions`);
+            } else {
+              throw parseError; // Re-throw original error
+            }
+          } catch (fixError) {
+            console.error('❌ JSON fix also failed:', fixError.message);
+            throw new Error(`Could not parse JSON from AI response: ${parseError.message}`);
+          }
+        }
+      }
+      
+      // If still no questions, try one more time with AI to fix the response
+      if (!questions.length && gemini) {
+        console.log('🔄 Attempting to fix AI response format...');
+        try {
+          const fixPrompt = `The following AI response failed to parse as JSON. Please extract and return ONLY a valid JSON array of questions in the correct format:
+
+${aiResponse.substring(0, 2000)}
+
+Return ONLY a valid JSON array, no other text.`;
+          
+          const fixModel = gemini.getGenerativeModel({ model: modelName });
+          const fixResult = await fixModel.generateContent(fixPrompt);
+          const fixResponse = await fixResult.response;
+          const fixText = fixResponse.text().trim();
+          
+          const fixJsonMatch = fixText.match(/\[[\s\S]*\]/);
+          if (fixJsonMatch) {
+            try {
+              const fixed = JSON.parse(fixJsonMatch[0]);
+              if (Array.isArray(fixed) && fixed.length > 0) {
+                questions = fixed;
+                method = 'gemini-ai-fixed';
+                console.log(`✅ Successfully fixed and parsed: ${questions.length} questions`);
+              }
+            } catch (e) {
+              console.warn('⚠️  Fix attempt also failed:', e.message);
+            }
+          }
+        } catch (fixError) {
+          console.warn('⚠️  Could not fix response:', fixError.message);
         }
       }
       
       // If still no questions, throw error
       if (!questions.length) {
         console.error('❌ Could not extract questions from Gemini response');
-        console.error('Raw response (first 500 chars):', aiResponse.substring(0, 500));
-        throw new Error('Could not parse JSON from AI response - no valid questions array found');
+        console.error('Raw response (first 1000 chars):', aiResponse.substring(0, 1000));
+        throw new Error('Could not parse JSON from AI response - no valid questions array found. The AI may have returned an unexpected format.');
       }
     } catch (geminiError) {
       console.error('\n❌ ===== Gemini AI Error =====');

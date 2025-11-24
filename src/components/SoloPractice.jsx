@@ -2,11 +2,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
+import ErrorModal from './shared/ErrorModal.jsx';
+import ConfirmationModal from './shared/ConfirmationModal.jsx';
 import { getFiles, getFolders } from '../services/apiService';
 import { generateQuestionsFromFile } from '../services/aiService';
 import '../styles/SoloPractice.css';
 import '../styles/StudentStudyTimer.css'; // For reviewer selection modal styles
 import '../styles/TutorialModal.css'; // For help button styles
+import '../styles/ErrorModal.css'; // For error modal styles
+import '../styles/ConfirmationModal.css';
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
 
 const SoloPractice = () => {
@@ -26,6 +30,8 @@ const SoloPractice = () => {
   const [showQuestionCountModal, setShowQuestionCountModal] = useState(false);
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [errorModal, setErrorModal] = useState({ isOpen: false, title: '', message: '', details: null });
+  const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' });
   const [questionCount, setQuestionCount] = useState(10);
   const [testType, setTestType] = useState('multiple_choice'); // multiple_choice, true_false, fill_blank
   const userId = 'demo-user'; // In production, get from auth context
@@ -110,7 +116,13 @@ const SoloPractice = () => {
       setSelectedFile(file);
       setShowQuestionCountModal(true);
     } else {
-      alert('This file does not have extractable content. Please ensure the file was uploaded correctly.');
+      setErrorModal({
+        isOpen: true,
+        title: 'File Content Error',
+        message: 'This file does not have extractable content. Please ensure the file was uploaded correctly.',
+        details: null,
+        type: 'error'
+      });
     }
   };
 
@@ -187,16 +199,42 @@ const SoloPractice = () => {
       // Show more helpful error message
       const errorMessage = error.message || 'Failed to generate questions';
       let userMessage = errorMessage;
+      let errorTitle = 'Error Generating Questions';
+      let errorDetails = null;
       
-      if (errorMessage.includes('Gemini API key') || errorMessage.includes('not configured')) {
+      if (errorMessage.includes('Gemini API key') || errorMessage.includes('not configured') || errorMessage.includes('GEMINI_API_KEY')) {
         userMessage = 'AI service is not configured. Please ensure GEMINI_API_KEY is set in the backend .env file and restart the server.';
+        errorTitle = 'AI Service Not Configured';
+        errorDetails = [
+          'The Gemini API key is missing or not properly configured',
+          'The backend server needs to be restarted after adding the API key',
+          'Check the server console for more details about the configuration'
+        ];
       } else if (errorMessage.includes('timeout')) {
         userMessage = 'Request timed out. The file might be too large. Try generating fewer questions or use a smaller file.';
+        errorTitle = 'Request Timeout';
+        errorDetails = [
+          'The AI is taking too long to process your file',
+          'Try reducing the number of questions',
+          'Consider using a smaller file or splitting it into parts'
+        ];
       } else if (errorMessage.includes('Failed to fetch') || errorMessage.includes('Cannot connect')) {
         userMessage = 'Cannot connect to backend server. Please ensure the server is running on http://localhost:5000';
+        errorTitle = 'Connection Error';
+        errorDetails = [
+          'The backend server may not be running',
+          'Check if the server is started on port 5000',
+          'Verify your network connection'
+        ];
       }
       
-      alert(`Error: ${userMessage}`);
+      setErrorModal({
+        isOpen: true,
+        title: errorTitle,
+        message: userMessage,
+        details: errorDetails,
+        type: 'error'
+      });
     } finally {
       setIsGeneratingQuestions(false);
     }
@@ -375,9 +413,15 @@ const SoloPractice = () => {
   };
 
   const handleExit = () => {
-    if (window.confirm('Are you sure you want to exit? Your progress will be lost.')) {
-      navigate('/my-files');
-    }
+    setConfirmationModal({
+      isOpen: true,
+      title: 'Exit Quiz',
+      message: 'Are you sure you want to exit? Your progress will be lost.',
+      onConfirm: () => {
+        navigate('/my-files');
+      },
+      type: 'warning'
+    });
   };
 
   // Show file selection page if no questions selected
@@ -996,6 +1040,26 @@ const SoloPractice = () => {
           }
         }}
         tutorial={tutorials.soloPractice}
+      />
+
+      {/* Error Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ isOpen: false, title: '', message: '', details: null })}
+        title={errorModal.title}
+        message={errorModal.message}
+        details={errorModal.details}
+        type={errorModal.type || 'error'}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmationModal.isOpen}
+        onClose={() => setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' })}
+        onConfirm={confirmationModal.onConfirm || (() => {})}
+        title={confirmationModal.title}
+        message={confirmationModal.message}
+        type={confirmationModal.type}
       />
     </div>
   );

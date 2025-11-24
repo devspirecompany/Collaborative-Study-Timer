@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import ErrorModal from './shared/ErrorModal.jsx';
 import '../styles/StudentLogin.css'; // fixed path
+import '../styles/ErrorModal.css'; // For error modal styles
 
 const StudentLogin = () => {
   const [email, setEmail] = useState('');
@@ -10,6 +12,7 @@ const StudentLogin = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [loggedInUsername, setLoggedInUsername] = useState('');
+  const [errorModal, setErrorModal] = useState({ isOpen: false, title: '', message: '', details: null, type: 'error' });
   const navigate = useNavigate();
 
   const validateEmail = (email) => {
@@ -17,57 +20,29 @@ const StudentLogin = () => {
     return re.test(email);
   };
 
-  const showNotification = (message, type = 'info') => {
-    const existingNotification = document.querySelector('.notification');
-    if (existingNotification) existingNotification.remove();
-
-    const notification = document.createElement('div');
-    notification.className = `notification notification-${type}`;
-    notification.textContent = message;
-
-    Object.assign(notification.style, {
-      position: 'fixed',
-      top: '2rem',
-      right: '2rem',
-      padding: '1rem 1.5rem',
-      borderRadius: '0.75rem',
-      fontSize: '0.95rem',
-      fontWeight: '500',
-      zIndex: '1000',
-      animation: 'slideIn 0.3s ease',
-      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
-      backdropFilter: 'blur(10px)',
-    });
-
-    if (type === 'success') {
-      notification.style.background = 'linear-gradient(135deg, #10b981, #059669)';
-      notification.style.color = 'white';
-    } else if (type === 'error') {
-      notification.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
-      notification.style.color = 'white';
-    } else {
-      notification.style.background = 'linear-gradient(135deg, #3b82f6, #2563eb)';
-      notification.style.color = 'white';
-    }
-
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-      notification.style.animation = 'slideOut 0.3s ease';
-      setTimeout(() => notification.remove(), 300);
-    }, 3000);
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!validateEmail(email)) {
-      showNotification('Please enter a valid email address', 'error');
+      setErrorModal({
+        isOpen: true,
+        title: 'Invalid Email',
+        message: 'Please enter a valid email address',
+        details: null,
+        type: 'error'
+      });
       return;
     }
 
     if (password.length < 6) {
-      showNotification('Password must be at least 6 characters', 'error');
+      setErrorModal({
+        isOpen: true,
+        title: 'Invalid Password',
+        message: 'Password must be at least 6 characters',
+        details: null,
+        type: 'error'
+      });
       return;
     }
 
@@ -115,16 +90,40 @@ const StudentLogin = () => {
           navigate('/student-dashboard');
         }, 2500);
       } else {
-        showNotification(data.message || 'Invalid email or password', 'error');
+        setErrorModal({
+          isOpen: true,
+          title: 'Login Failed',
+          message: data.message || 'Invalid email or password',
+          details: null,
+          type: 'error'
+        });
       }
     } catch (error) {
       console.error('Login error:', error);
       if (error.name === 'AbortError') {
-        showNotification('Connection timeout. Please make sure the backend server is running on port 5000.', 'error');
+        setErrorModal({
+          isOpen: true,
+          title: 'Connection Timeout',
+          message: 'Connection timeout. Please make sure the backend server is running on port 5000.',
+          details: null,
+          type: 'error'
+        });
       } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-        showNotification('Cannot connect to server. Please make sure the backend server is running.', 'error');
+        setErrorModal({
+          isOpen: true,
+          title: 'Connection Error',
+          message: 'Cannot connect to server. Please make sure the backend server is running.',
+          details: null,
+          type: 'error'
+        });
       } else {
-        showNotification(error.message || 'Error logging in. Please try again.', 'error');
+        setErrorModal({
+          isOpen: true,
+          title: 'Login Error',
+          message: error.message || 'Error logging in. Please try again.',
+          details: null,
+          type: 'error'
+        });
       }
     } finally {
       setIsLoading(false);
@@ -133,7 +132,13 @@ const StudentLogin = () => {
 
   const handleForgotPassword = (e) => {
     e.preventDefault();
-    showNotification('Password reset link will be sent to your email', 'info');
+    setErrorModal({
+      isOpen: true,
+      title: 'Password Reset',
+      message: 'Password reset link will be sent to your email',
+      details: null,
+      type: 'info'
+    });
   };
 
   return (
@@ -301,16 +306,15 @@ const StudentLogin = () => {
         </div>
       )}
 
-      <style>{`
-        @keyframes slideIn {
-          from { transform: translateX(100%); opacity: 0; }
-          to   { transform: translateX(0);     opacity: 1; }
-        }
-        @keyframes slideOut {
-          from { transform: translateX(0);     opacity: 1; }
-          to   { transform: translateX(100%); opacity: 0; }
-        }
-      `}</style>
+      {/* Error/Info Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ isOpen: false, title: '', message: '', details: null, type: 'error' })}
+        title={errorModal.title}
+        message={errorModal.message}
+        details={errorModal.details}
+        type={errorModal.type}
+      />
     </div>
   );
 };

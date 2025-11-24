@@ -2,10 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
+import ErrorModal from './shared/ErrorModal.jsx';
+import ConfirmationModal from './shared/ConfirmationModal.jsx';
 import { getStudyRoom, leaveStudyRoom, controlStudyTimer, startStudyRoomQuiz, submitQuizAnswer, nextQuizQuestion, endStudyRoomQuiz, shareFileInRoom, removeSharedFile, sendChatMessage, setRoomDocument, clearRoomDocument, setRoomReviewer } from '../services/apiService';
 import { getFiles } from '../services/apiService';
 import { generateQuestionsFromFile, createReviewerFromFile } from '../services/aiService';
 import '../styles/StudyRoom.css';
+import '../styles/ErrorModal.css';
+import '../styles/ConfirmationModal.css';
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
 
 const StudyRoom = () => {
@@ -38,6 +42,8 @@ const StudyRoom = () => {
   const [showShareFileModal, setShowShareFileModal] = useState(false);
   const [isSharingFile, setIsSharingFile] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [errorModal, setErrorModal] = useState({ isOpen: false, title: '', message: '', details: null, type: 'error' });
+  const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' });
   
   // Document viewer states
   const [viewingFile, setViewingFile] = useState(null);
@@ -202,17 +208,28 @@ const StudyRoom = () => {
   };
 
   // Leave room
-  const handleLeaveRoom = async () => {
-    if (window.confirm('Are you sure you want to leave this study room?')) {
-      try {
-        await leaveStudyRoom(roomCode, userId);
-        navigate('/group-study');
-      } catch (error) {
-        console.error('Error leaving room:', error);
-        // Navigate anyway
-        navigate('/group-study');
-      }
-    }
+  const handleLeaveRoom = () => {
+    setConfirmationModal({
+      isOpen: true,
+      title: 'Leave Study Room',
+      message: 'Are you sure you want to leave this study room?',
+      onConfirm: async () => {
+        try {
+          await leaveStudyRoom(roomCode, userId);
+          navigate('/group-study');
+        } catch (error) {
+          console.error('Error leaving room:', error);
+          setErrorModal({
+            isOpen: true,
+            title: 'Leave Failed',
+            message: 'Failed to leave room. Please try again.',
+            details: null,
+            type: 'error'
+          });
+        }
+      },
+      type: 'warning'
+    });
   };
 
   // Format time for display
@@ -230,13 +247,25 @@ const StudyRoom = () => {
   // Control shared timer (host only)
   const handleTimerControl = async (action, duration = null) => {
     if (!isHost) {
-      alert('Only the host can control the timer');
+      setErrorModal({
+        isOpen: true,
+        title: 'Permission Denied',
+        message: 'Only the host can control the timer',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
 
     // Check if starting timer requires at least 2 participants
     if (action === 'start' && room?.participants && room.participants.length < 2) {
-      alert('⏸️ Please wait for at least one more person to join before starting the timer.\n\nThis is a collaborative study session - invite your friends using the room code!');
+      setErrorModal({
+        isOpen: true,
+        title: 'Wait for More Participants',
+        message: 'Please wait for at least one more person to join before starting the timer.',
+        details: ['This is a collaborative study session - invite your friends using the room code!'],
+        type: 'info'
+      });
       return;
     }
 
@@ -245,7 +274,13 @@ const StudyRoom = () => {
       // Room state will update via polling
     } catch (error) {
       console.error('Error controlling timer:', error);
-      alert(error.message || 'Failed to control timer. Please try again.');
+      setErrorModal({
+        isOpen: true,
+        title: 'Timer Control Failed',
+        message: error.message || 'Failed to control timer. Please try again.',
+        details: null,
+        type: 'error'
+      });
     }
   };
 
@@ -270,7 +305,13 @@ const StudyRoom = () => {
   // Generate questions and start quiz
   const handleGenerateAndStartQuiz = async () => {
     if (!selectedFile) {
-      alert('Please select a file');
+      setErrorModal({
+        isOpen: true,
+        title: 'No File Selected',
+        message: 'Please select a file',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
 
@@ -323,14 +364,32 @@ const StudyRoom = () => {
           setShowFileSelectionModal(false);
           setSelectedFile(null);
         } else {
-          alert(startResponse.message || 'Failed to start quiz');
+          setErrorModal({
+            isOpen: true,
+            title: 'Quiz Start Failed',
+            message: startResponse.message || 'Failed to start quiz',
+            details: null,
+            type: 'error'
+          });
         }
       } else {
-        alert('Failed to generate questions. Please try again.');
+        setErrorModal({
+          isOpen: true,
+          title: 'Question Generation Failed',
+          message: 'Failed to generate questions. Please try again.',
+          details: null,
+          type: 'error'
+        });
       }
     } catch (error) {
       console.error('Error generating questions:', error);
-      alert(error.message || 'Failed to generate questions');
+      setErrorModal({
+        isOpen: true,
+        title: 'Question Generation Failed',
+        message: error.message || 'Failed to generate questions',
+        details: null,
+        type: 'error'
+      });
     } finally {
       setIsGeneratingQuestions(false);
     }
@@ -358,7 +417,13 @@ const StudyRoom = () => {
       }
     } catch (error) {
       console.error('Error submitting answer:', error);
-      alert('Failed to submit answer');
+      setErrorModal({
+        isOpen: true,
+        title: 'Submission Failed',
+        message: 'Failed to submit answer',
+        details: null,
+        type: 'error'
+      });
     }
   };
 
@@ -377,18 +442,31 @@ const StudyRoom = () => {
   };
 
   // End quiz (host only)
-  const handleEndQuiz = async () => {
+  const handleEndQuiz = () => {
     if (!isHost) return;
 
-    if (window.confirm('Are you sure you want to end the quiz?')) {
-      try {
-        await endStudyRoomQuiz(roomCode, userId);
-        setAnswerSubmitted(false);
-        setSelectedAnswer(null);
-      } catch (error) {
-        console.error('Error ending quiz:', error);
-      }
-    }
+    setConfirmationModal({
+      isOpen: true,
+      title: 'End Quiz',
+      message: 'Are you sure you want to end the quiz?',
+      onConfirm: async () => {
+        try {
+          await endStudyRoomQuiz(roomCode, userId);
+          setAnswerSubmitted(false);
+          setSelectedAnswer(null);
+        } catch (error) {
+          console.error('Error ending quiz:', error);
+          setErrorModal({
+            isOpen: true,
+            title: 'End Quiz Failed',
+            message: 'Failed to end quiz. Please try again.',
+            details: null,
+            type: 'error'
+          });
+        }
+      },
+      type: 'warning'
+    });
   };
 
   // Start answer timer when question changes
@@ -414,42 +492,78 @@ const StudyRoom = () => {
         setShowShareFileModal(false);
         // Room will update via polling
       } else {
-        alert(response.message || 'Failed to share file');
+        setErrorModal({
+          isOpen: true,
+          title: 'Share Failed',
+          message: response.message || 'Failed to share file',
+          details: null,
+          type: 'error'
+        });
       }
     } catch (error) {
       console.error('Error sharing file:', error);
-      alert('Failed to share file');
+      setErrorModal({
+        isOpen: true,
+        title: 'Share Failed',
+        message: 'Failed to share file',
+        details: null,
+        type: 'error'
+      });
     } finally {
       setIsSharingFile(false);
     }
   };
 
   // Remove shared file
-  const handleRemoveSharedFile = async (fileId) => {
-    if (!window.confirm('Remove this shared file from the room?')) return;
-
-    try {
-      const response = await removeSharedFile(roomCode, fileId, userId);
-      if (response.success) {
-        // Room will update via polling
-        if (viewingFile?.fileId === fileId) {
-          setViewingFile(null);
-          setReviewerContent(null);
-          setViewMode('raw');
+  const handleRemoveSharedFile = (fileId) => {
+    setConfirmationModal({
+      isOpen: true,
+      title: 'Remove Shared File',
+      message: 'Remove this shared file from the room?',
+      onConfirm: async () => {
+        try {
+          const response = await removeSharedFile(roomCode, fileId, userId);
+          if (response.success) {
+            // Room will update via polling
+            if (viewingFile?.fileId === fileId) {
+              setViewingFile(null);
+              setReviewerContent(null);
+              setViewMode('raw');
+            }
+          } else {
+            setErrorModal({
+              isOpen: true,
+              title: 'Remove Failed',
+              message: response.message || 'Failed to remove file',
+              details: null,
+              type: 'error'
+            });
+          }
+        } catch (error) {
+          console.error('Error removing shared file:', error);
+          setErrorModal({
+            isOpen: true,
+            title: 'Remove Failed',
+            message: 'Failed to remove file',
+            details: null,
+            type: 'error'
+          });
         }
-      } else {
-        alert(response.message || 'Failed to remove file');
-      }
-    } catch (error) {
-      console.error('Error removing shared file:', error);
-      alert('Failed to remove file');
-    }
+      },
+      type: 'warning'
+    });
   };
 
   // View shared file (host can set as main document)
   const handleSetAsMainDocument = async (sharedFile, useReviewer = false) => {
     if (!isHost) {
-      alert('Only the host can set the main document');
+      setErrorModal({
+        isOpen: true,
+        title: 'Permission Denied',
+        message: 'Only the host can set the main document',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
 
@@ -482,13 +596,25 @@ const StudyRoom = () => {
                 reviewer.keyPoints || []
               );
             } else {
-              alert('Failed to generate reviewer. Using raw file instead.');
+              setErrorModal({
+                isOpen: true,
+                title: 'Reviewer Generation Failed',
+                message: 'Failed to generate reviewer. Using raw file instead.',
+                details: null,
+                type: 'warning'
+              });
               await setRoomDocument(roomCode, userId, sharedFile.fileId, 'raw');
               setViewMode('raw');
             }
           } catch (error) {
             console.error('Error generating reviewer:', error);
-            alert('Failed to generate reviewer. Using raw file instead.');
+            setErrorModal({
+              isOpen: true,
+              title: 'Reviewer Generation Failed',
+              message: 'Failed to generate reviewer. Using raw file instead.',
+              details: null,
+              type: 'warning'
+            });
             await setRoomDocument(roomCode, userId, sharedFile.fileId, 'raw');
             setViewMode('raw');
           } finally {
@@ -500,7 +626,13 @@ const StudyRoom = () => {
       }
     } catch (error) {
       console.error('Error setting document:', error);
-      alert('Failed to set document');
+      setErrorModal({
+        isOpen: true,
+        title: 'Set Document Failed',
+        message: 'Failed to set document',
+        details: null,
+        type: 'error'
+      });
     }
   };
 
@@ -516,11 +648,23 @@ const StudyRoom = () => {
         setChatMessage('');
         // Room will update via polling
       } else {
-        alert(response.message || 'Failed to send message');
+        setErrorModal({
+          isOpen: true,
+          title: 'Send Message Failed',
+          message: response.message || 'Failed to send message',
+          details: null,
+          type: 'error'
+        });
       }
     } catch (error) {
       console.error('Error sending message:', error);
-      alert('Failed to send message');
+      setErrorModal({
+        isOpen: true,
+        title: 'Send Message Failed',
+        message: 'Failed to send message',
+        details: null,
+        type: 'error'
+      });
     } finally {
       setIsSendingMessage(false);
     }
@@ -1777,6 +1921,26 @@ const StudyRoom = () => {
           }
         }}
         tutorial={tutorials.studyRoom}
+      />
+
+      {/* Error Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ isOpen: false, title: '', message: '', details: null, type: 'error' })}
+        title={errorModal.title}
+        message={errorModal.message}
+        details={errorModal.details}
+        type={errorModal.type}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmationModal.isOpen}
+        onClose={() => setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' })}
+        onConfirm={confirmationModal.onConfirm || (() => {})}
+        title={confirmationModal.title}
+        message={confirmationModal.message}
+        type={confirmationModal.type}
       />
     </div>
   );

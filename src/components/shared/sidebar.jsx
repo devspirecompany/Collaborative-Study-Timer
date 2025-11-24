@@ -214,20 +214,28 @@ const Sidebar = () => {
 
           {/* User Dropdown */}
           <div className={`user-dropdown ${userDropdownActive ? 'active' : ''}`}>
-            <a href="#" className="dropdown-item">
+            <Link 
+              to="/profile-settings" 
+              className="dropdown-item"
+              onClick={() => setUserDropdownActive(false)}
+            >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                 <circle cx="12" cy="7" r="4"></circle>
               </svg>
               <span>View Profile</span>
-            </a>
-            <a href="#" className="dropdown-item">
+            </Link>
+            <Link 
+              to="/profile-settings#settings" 
+              className="dropdown-item"
+              onClick={() => setUserDropdownActive(false)}
+            >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="3"></circle>
                 <path d="M12 1v6m0 6v6m5.66-15.66l-4.24 4.24m0 6.84l-4.24 4.24M23 12h-6m-6 0H1m18.36-5.66l-4.24 4.24m0 6.84l-4.24 4.24"></path>
               </svg>
               <span>Settings</span>
-            </a>
+            </Link>
             <a href="#" className="dropdown-item logout" onClick={(e) => { e.preventDefault(); handleLogout(); }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
@@ -389,6 +397,15 @@ const Sidebar = () => {
             </svg>
           </span>
           <span className="menu-text">Productivity Tracker</span>
+        </Link>
+        <Link to="/profile-settings" className={`menu-item ${isActive('/profile-settings') ? 'active' : ''}`}>
+          <span className="menu-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+          </span>
+          <span className="menu-text">Profile & Settings</span>
         </Link>
       </aside>
     </div>

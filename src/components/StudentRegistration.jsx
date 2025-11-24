@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import ErrorModal from './shared/ErrorModal.jsx';
 import '../styles/StudentLogin.css';
 import '../styles/StudentRegistration.css'; // Import mo lang yung CSS
+import '../styles/ErrorModal.css'; // For error modal styles
 
 const StudentRegistration = () => {
   const [formData, setFormData] = useState({
@@ -19,6 +21,7 @@ const StudentRegistration = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [registeredUsername, setRegisteredUsername] = useState('');
+  const [errorModal, setErrorModal] = useState({ isOpen: false, title: '', message: '', details: null, type: 'error' });
   const navigate = useNavigate();
 
   const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -64,32 +67,68 @@ const StudentRegistration = () => {
     e.preventDefault();
     
     if (!formData.firstName || !formData.lastName) {
-      alert('Please enter your full name');
+      setErrorModal({
+        isOpen: true,
+        title: 'Validation Error',
+        message: 'Please enter your full name',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
     
     if (formData.username.length < 3) {
-      alert('Username must be at least 3 characters');
+      setErrorModal({
+        isOpen: true,
+        title: 'Validation Error',
+        message: 'Username must be at least 3 characters',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
     
     if (!validateEmail(formData.email)) {
-      alert('Please enter a valid email address');
+      setErrorModal({
+        isOpen: true,
+        title: 'Validation Error',
+        message: 'Please enter a valid email address',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
     
     if (formData.password.length < 6) {
-      alert('Password must be at least 6 characters');
+      setErrorModal({
+        isOpen: true,
+        title: 'Validation Error',
+        message: 'Password must be at least 6 characters',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
     
     if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match');
+      setErrorModal({
+        isOpen: true,
+        title: 'Validation Error',
+        message: 'Passwords do not match',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
     
     if (!formData.agreeTerms) {
-      alert('Please agree to the Terms of Service');
+      setErrorModal({
+        isOpen: true,
+        title: 'Terms of Service',
+        message: 'Please agree to the Terms of Service',
+        details: null,
+        type: 'warning'
+      });
       return;
     }
 
@@ -130,14 +169,36 @@ const StudentRegistration = () => {
         }, 2500);
       } else {
         console.error('❌ Registration failed:', data.message);
-        alert(data.message || 'Registration failed. Please try again.');
+        setErrorModal({
+          isOpen: true,
+          title: 'Registration Failed',
+          message: data.message || 'Registration failed. Please try again.',
+          details: null,
+          type: 'error'
+        });
       }
     } catch (error) {
       console.error('❌ Registration error:', error);
       if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-        alert('❌ Cannot connect to backend server!\n\nPlease:\n1. Start the backend: cd server && npm run dev\n2. Make sure it shows: "✅ MongoDB Connected"\n3. Then try registration again.');
+        setErrorModal({
+          isOpen: true,
+          title: 'Connection Error',
+          message: 'Cannot connect to backend server!',
+          details: [
+            'Start the backend: cd server && npm run dev',
+            'Make sure it shows: "✅ MongoDB Connected"',
+            'Then try registration again'
+          ],
+          type: 'error'
+        });
       } else {
-        alert(`Error creating account: ${error.message}\n\nPlease make sure the backend server is running.`);
+        setErrorModal({
+          isOpen: true,
+          title: 'Registration Error',
+          message: `Error creating account: ${error.message}`,
+          details: ['Please make sure the backend server is running'],
+          type: 'error'
+        });
       }
     } finally {
       setIsLoading(false);
@@ -399,6 +460,16 @@ const StudentRegistration = () => {
           </div>
         </div>
       )}
+
+      {/* Error Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ isOpen: false, title: '', message: '', details: null, type: 'error' })}
+        title={errorModal.title}
+        message={errorModal.message}
+        details={errorModal.details}
+        type={errorModal.type}
+      />
     </div>
   );
 };

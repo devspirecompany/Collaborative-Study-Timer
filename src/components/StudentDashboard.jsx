@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import '../styles/StudentDashboard.css';
 import '../styles/TutorialModal.css'; // For help button styles
+import '../styles/ErrorModal.css'; // For error modal styles
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
+import ErrorModal from './shared/ErrorModal.jsx';
 import { getRecommendedStudyDuration } from '../services/aiService';
 import { getStudySessionStats, getProductivityData, getRecentActivities } from '../services/apiService';
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
@@ -244,6 +246,7 @@ const StudentDashboard = () => {
   const [notificationSidebarActive, setNotificationSidebarActive] = useState(false);
   const [unreadCount, setUnreadCount] = useState(3);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [errorModal, setErrorModal] = useState({ isOpen: false, title: '', message: '', details: null, type: 'info' });
   const [notifications, setNotifications] = useState([
     { id: 1, type: 'blue', title: 'New Achievement Unlocked!', text: "You've earned the \"Early Bird\" badge", time: '5 minutes ago', unread: true },
     { id: 2, type: 'green', title: 'Study Group Invitation', text: 'Sarah invited you to "Math Finals Review"', time: '1 hour ago', unread: true },
@@ -309,7 +312,13 @@ const StudentDashboard = () => {
   };
 
   const showTimerCompleteAlert = () => {
-    alert('🎉 Session Completed! Great work!');
+    setErrorModal({
+      isOpen: true,
+      title: 'Session Completed!',
+      message: '🎉 Great work! You\'ve completed your study session.',
+      details: null,
+      type: 'success'
+    });
   };
 
   const handleNotificationClick = (id) => {
@@ -687,6 +696,16 @@ const StudentDashboard = () => {
           }
         }}
         tutorial={tutorials.dashboard}
+      />
+
+      {/* Error/Info Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ isOpen: false, title: '', message: '', details: null, type: 'info' })}
+        title={errorModal.title}
+        message={errorModal.message}
+        details={errorModal.details}
+        type={errorModal.type}
       />
     </div>
   );

@@ -2,10 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
+import ConfirmationModal from './shared/ConfirmationModal.jsx';
+import ErrorModal from './shared/ErrorModal.jsx';
 import { createCompetition, joinCompetition, submitAnswer, completeCompetition, getCompetition, getFiles, createFile, getFolders, createFolder } from '../services/apiService';
 import { createStudyRoom, joinStudyRoom } from '../services/apiService';
 import { generateQuestionsFromFile } from '../services/aiService';
 import '../styles/GroupStudy.css';
+import '../styles/ConfirmationModal.css';
+import '../styles/ErrorModal.css';
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
 
 const GroupStudy = () => {
@@ -79,10 +83,17 @@ const GroupStudy = () => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [availableRooms, setAvailableRooms] = useState([]);
   
-  // Notification Modal States
-  const [showNotification, setShowNotification] = useState(false);
-  const [notificationMessage, setNotificationMessage] = useState('');
-  const [notificationType, setNotificationType] = useState('success'); // 'success' or 'error'
+  // Error Modal State
+  const [errorModal, setErrorModal] = useState({ isOpen: false, title: '', message: '', details: null, type: 'error' });
+  
+  // Confirmation Modal State
+  const [confirmationModal, setConfirmationModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    type: 'warning'
+  });
   
   // Get questions from location state (if coming from MyFiles)
   const reviewerQuestions = location.state?.questions || null;
@@ -247,16 +258,16 @@ const GroupStudy = () => {
     }
   }, [showUploadSection]);
 
-  // Notification helper function
+  // Notification helper function - now uses ErrorModal
   const showNotificationModal = (message, type = 'success') => {
-    setNotificationMessage(message);
-    setNotificationType(type);
-    setShowNotification(true);
-    
-    // Auto-close after 3 seconds
-    setTimeout(() => {
-      setShowNotification(false);
-    }, 3000);
+    const title = type === 'success' ? 'Success' : type === 'error' ? 'Error' : 'Notification';
+    setErrorModal({
+      isOpen: true,
+      title: title,
+      message: message,
+      details: null,
+      type: type === 'success' ? 'success' : type === 'error' ? 'error' : 'info'
+    });
   };
 
   const handleCreateFolder = async () => {
@@ -317,36 +328,30 @@ const GroupStudy = () => {
       return;
     }
 
-    // Warn for very large files
-    if (uploadFile.size > 5 * 1024 * 1024) {
-      const proceed = window.confirm(`This file is large (${(uploadFile.size / 1024 / 1024).toFixed(2)}MB). Processing may take longer. Continue?`);
-      if (!proceed) {
-        return;
-      }
-    }
+    // Define upload function
+    const continueUpload = () => {
+      setIsUploading(true);
+      try {
+        console.log('📤 Starting file upload...', {
+          fileName: uploadFile.name,
+          fileType: fileType,
+          fileSize: uploadFile.size,
+          folder: uploadFolder,
+          userId: userId
+        });
 
-    setIsUploading(true);
-    try {
-      console.log('📤 Starting file upload...', {
-        fileName: uploadFile.name,
-        fileType: fileType,
-        fileSize: uploadFile.size,
-        folder: uploadFolder,
-        userId: userId
-      });
-
-      // Read file content
-      const reader = new FileReader();
-      
-      // For text files, read as text; for DOCX, read as data URL (base64)
-      if (fileType === 'txt' || fileType === 'md') {
-        reader.readAsText(uploadFile);
-      } else if (fileType === 'docx') {
-        reader.readAsDataURL(uploadFile);
-      }
-      
-      reader.onload = async (e) => {
-        try {
+        // Read file content
+        const reader = new FileReader();
+        
+        // For text files, read as text; for DOCX, read as data URL (base64)
+        if (fileType === 'txt' || fileType === 'md') {
+          reader.readAsText(uploadFile);
+        } else if (fileType === 'docx') {
+          reader.readAsDataURL(uploadFile);
+        }
+        
+        reader.onload = async (e) => {
+          try {
           let fileContent = e.target.result;
           console.log('📄 File content read, length:', fileContent?.length || 0);
           
@@ -400,6 +405,27 @@ const GroupStudy = () => {
       showNotificationModal(`Failed to upload file: ${error.message || 'Unknown error'}`, 'error');
       setIsUploading(false);
     }
+    };
+
+    // Warn for very large files (but still under 10MB limit)
+    if (uploadFile.size > 5 * 1024 * 1024) {
+      setConfirmationModal({
+        isOpen: true,
+        title: 'Large File Warning',
+        message: `This file is large (${(uploadFile.size / 1024 / 1024).toFixed(2)}MB). Processing may take longer. Continue?`,
+        onConfirm: () => {
+          setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' });
+          continueUpload();
+        },
+        onClose: () => {
+          setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' });
+        },
+        type: 'warning'
+      });
+      return;
+    }
+
+    continueUpload();
   };
 
   // Handle Create Room (Auto-generate code like Google Meet)
@@ -2529,94 +2555,25 @@ const GroupStudy = () => {
         tutorial={tutorials.groupStudy}
       />
 
-      {/* Notification Modal */}
-      {showNotification && (
-        <div className="modal-overlay" onClick={() => setShowNotification(false)} style={{ zIndex: 10000 }}>
-          <div 
-            className="notification-modal" 
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'linear-gradient(135deg, #111f3a 0%, #0f1a2e 100%)',
-              border: `1px solid ${notificationType === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-              borderRadius: '16px',
-              padding: '2rem',
-              maxWidth: '400px',
-              width: '90%',
-              textAlign: 'center',
-              animation: 'slideUp 0.3s ease',
-              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)'
-            }}
-          >
-            <div style={{
-              width: '64px',
-              height: '64px',
-              margin: '0 auto 1.5rem',
-              borderRadius: '50%',
-              background: notificationType === 'success' 
-                ? 'rgba(16, 185, 129, 0.1)' 
-                : 'rgba(239, 68, 68, 0.1)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              {notificationType === 'success' ? (
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 6L9 17l-5-5"/>
-                </svg>
-              ) : (
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"/>
-                  <line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              )}
-            </div>
-            <h3 style={{
-              fontSize: '1.25rem',
-              fontWeight: '600',
-              color: 'var(--text-primary)',
-              marginBottom: '0.75rem'
-            }}>
-              {notificationType === 'success' ? 'Success!' : 'Error'}
-            </h3>
-            <div style={{
-              fontSize: '1rem',
-              color: 'var(--text-secondary)',
-              marginBottom: '1.5rem',
-              lineHeight: '1.6',
-              whiteSpace: 'pre-line',
-              textAlign: 'left',
-              maxHeight: '300px',
-              overflowY: 'auto',
-              padding: '0.5rem'
-            }}>
-              {notificationMessage.split('\n').map((line, index) => (
-                <div key={index} style={{ marginBottom: line.trim() === '' ? '0.5rem' : '0.25rem' }}>
-                  {line || '\u00A0'}
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={() => setShowNotification(false)}
-              style={{
-                padding: '0.75rem 2rem',
-                background: notificationType === 'success' ? '#10b981' : '#ef4444',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                fontWeight: '500',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                width: '100%'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-            >
-              OK
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Error/Info Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ isOpen: false, title: '', message: '', details: null, type: 'error' })}
+        title={errorModal.title}
+        message={errorModal.message}
+        details={errorModal.details}
+        type={errorModal.type}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmationModal.isOpen}
+        onClose={() => setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' })}
+        onConfirm={confirmationModal.onConfirm || (() => {})}
+        title={confirmationModal.title}
+        message={confirmationModal.message}
+        type={confirmationModal.type}
+      />
     </div>
   );
 };

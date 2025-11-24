@@ -250,7 +250,8 @@ router.post('/', async (req, res) => {
     if (finalFileType === 'docx') {
       try {
         console.log(`📄 Extracting text from DOCX file: ${fileName}`);
-        extractedContent = await extractTextFromFile(fileContent, finalFileType);
+        // Use AI enhancement by default (will fallback to standard if AI not available)
+        extractedContent = await extractTextFromFile(fileContent, finalFileType, true);
         
         // Validate extraction was successful
         if (!extractedContent || extractedContent.trim().length === 0) {
