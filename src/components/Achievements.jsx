@@ -4,11 +4,26 @@ import TutorialModal from './shared/TutorialModal.jsx';
 import '../styles/Achievements.css';
 import '../styles/TutorialModal.css'; // For help button styles
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+import { getAchievements } from '../services/apiService';
 
 const Achievements = () => {
   const [showTutorial, setShowTutorial] = useState(false);
+  const [achievements, setAchievements] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [overallProgress, setOverallProgress] = useState(0);
+
+  // Get user data from localStorage
+  const [userData] = useState(() => {
+    try {
+      const stored = localStorage.getItem('currentUser');
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+      return null;
+    }
+  });
+
+  const userId = userData?._id || userData?.id || 'demo-user';
 
   // Show tutorial immediately when feature is accessed
   useEffect(() => {
@@ -17,108 +32,63 @@ const Achievements = () => {
     }
   }, []);
 
-  // Study Milestones - All in progress for new accounts
-  const studyMilestones = [
-    {
-      id: 1,
-      icon: '📚',
-      title: 'First Steps',
-      description: 'Complete your first study session',
-      tier: 'SILVER',
-      unlocked: false,
-      progress: 0,
-      current: 0,
-      target: 1
-    },
-    {
-      id: 2,
-      icon: '⏱️',
-      title: 'Time Master',
-      description: 'Complete 25 study sessions',
-      tier: 'SILVER',
-      unlocked: false,
-      progress: 0,
-      current: 0,
-      target: 25
-    },
-    {
-      id: 3,
-      icon: '🎓',
-      title: 'Scholar Club',
-      description: 'Complete 100 total study sessions',
-      tier: 'GOLD',
-      unlocked: false,
-      progress: 0,
-      current: 0,
-      target: 100
-    },
-    {
-      id: 4,
-      icon: '🏆',
-      title: 'Study Legend',
-      description: 'Complete 500 total study sessions',
-      tier: 'PLATINUM',
-      unlocked: false,
-      progress: 0,
-      current: 0,
-      target: 500
-    }
-  ];
+  // Fetch achievements from API
+  useEffect(() => {
+    const fetchAchievements = async () => {
+      try {
+        setLoading(true);
+        const response = await getAchievements(userId);
+        if (response && response.success && response.achievements) {
+          setAchievements(response.achievements);
+          
+          // Calculate overall progress
+          const totalAchievements = response.achievements.length;
+          const unlockedCount = response.achievements.filter(a => a.unlocked).length;
+          const overallPercentage = totalAchievements > 0 
+            ? Math.round((unlockedCount / totalAchievements) * 100) 
+            : 0;
+          setOverallProgress(overallPercentage);
+        } else {
+          console.warn('Failed to fetch achievements:', response);
+          setAchievements([]);
+          setOverallProgress(0);
+        }
+      } catch (error) {
+        console.error('Error fetching achievements:', error);
+        setAchievements([]);
+        setOverallProgress(0);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  // Streak Records - All in progress for new accounts
-  const streakRecords = [
-    {
-      id: 5,
-      icon: '📅',
-      title: 'Consistency Starter',
-      description: 'Maintain a 7-day study streak',
-      tier: 'SILVER',
-      unlocked: false,
-      progress: 0,
-      current: 0,
-      target: 7
-    },
-    {
-      id: 6,
-      icon: '📆',
-      title: 'Two Week Warrior',
-      description: 'Maintain a 14-day study streak',
-      tier: 'SILVER',
-      unlocked: false,
-      progress: 0,
-      current: 0,
-      target: 14
-    },
-    {
-      id: 7,
-      icon: '🔥',
-      title: '30-Day Streak Master',
-      description: 'Maintain a 30-day study streak',
-      tier: 'GOLD',
-      unlocked: false,
-      progress: 0,
-      current: 0,
-      target: 30
-    },
-    {
-      id: 8,
-      icon: '⚡',
-      title: 'Unstoppable Force',
-      description: 'Maintain a 100-day study streak',
-      tier: 'PLATINUM',
-      unlocked: false,
-      progress: 0,
-      current: 0,
-      target: 100,
-      currentStreak: true
+    if (userId) {
+      fetchAchievements();
     }
-  ];
+  }, [userId]);
+
+  // Categorize achievements
+  const studyMilestones = achievements.filter(a => 
+    ['study_marathon', 'focused_mind', 'time_warrior'].includes(a.achievementType) ||
+    a.title?.toLowerCase().includes('study') || 
+    a.title?.toLowerCase().includes('session') ||
+    a.title?.toLowerCase().includes('hour')
+  );
+
+  const streakRecords = achievements.filter(a => 
+    ['streak_master', 'perfect_week', 'early_bird'].includes(a.achievementType) ||
+    a.title?.toLowerCase().includes('streak') ||
+    a.title?.toLowerCase().includes('day')
+  );
+
+  const otherAchievements = achievements.filter(a => 
+    !studyMilestones.includes(a) && !streakRecords.includes(a)
+  );
 
   // Get recently unlocked achievements (most recent 3)
-  const allAchievements = [...studyMilestones, ...streakRecords];
-  const recentlyUnlocked = allAchievements
+  const recentlyUnlocked = achievements
     .filter(a => a.unlocked)
-    .sort((a, b) => new Date(b.unlockedDate) - new Date(a.unlockedDate))
+    .sort((a, b) => new Date(b.unlockedAt || 0) - new Date(a.unlockedAt || 0))
     .slice(0, 3);
 
   return (
@@ -132,24 +102,60 @@ const Achievements = () => {
           </div>
         </div>
 
+        {/* Overall Progress Card */}
+        {!loading && achievements.length > 0 && (
+          <div className="card" style={{ 
+            marginBottom: '2rem', 
+            background: 'linear-gradient(135deg, var(--primary) 0%, #2563eb 100%)',
+            color: 'white',
+            border: 'none'
+          }}>
+            <div style={{ padding: '2rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: '600' }}>Overall Progress</h2>
+                <div style={{ fontSize: '2.5rem', fontWeight: '700' }}>{overallProgress}%</div>
+              </div>
+              <div style={{ 
+                background: 'rgba(255, 255, 255, 0.2)', 
+                borderRadius: '10px', 
+                height: '12px', 
+                overflow: 'hidden',
+                marginBottom: '0.5rem'
+              }}>
+                <div style={{ 
+                  background: 'white', 
+                  height: '100%', 
+                  width: `${overallProgress}%`,
+                  transition: 'width 0.5s ease',
+                  borderRadius: '10px'
+                }}></div>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.9rem', opacity: 0.9 }}>
+                {achievements.filter(a => a.unlocked).length} of {achievements.length} achievements unlocked
+                {overallProgress < 100 && ` • ${100 - overallProgress}% remaining to complete all`}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Recently Unlocked Section */}
         <div className="recently-unlocked-section">
           <h2 className="recently-unlocked-title">Recently Unlocked</h2>
           {recentlyUnlocked.length > 0 ? (
             <div className="recently-unlocked-grid">
               {recentlyUnlocked.map((achievement) => (
-                <div key={achievement.id} className={`recently-unlocked-card ${achievement.tier.toLowerCase()}-highlight`}>
-                  <div className={`milestone-badge ${achievement.tier.toLowerCase()}`}>
-                    {achievement.tier}
+                <div key={achievement._id || achievement.id} className={`recently-unlocked-card ${(achievement.tier || 'SILVER').toLowerCase()}-highlight`}>
+                  <div className={`milestone-badge ${(achievement.tier || 'SILVER').toLowerCase()}`}>
+                    {achievement.tier || 'SILVER'}
                   </div>
                   <div className="recently-unlocked-icon">
-                    {achievement.icon}
+                    {achievement.icon || '⭐'}
                   </div>
                   <h3 className="recently-unlocked-name">{achievement.title}</h3>
                   <p className="recently-unlocked-desc">{achievement.description}</p>
                   <div className="recently-unlocked-date">
                     <span className="unlock-badge">🔓</span>
-                    Unlocked {achievement.unlockedDate}
+                    Unlocked {achievement.unlockedAt ? new Date(achievement.unlockedAt).toLocaleDateString() : 'Recently'}
                   </div>
                 </div>
               ))}
@@ -166,103 +172,164 @@ const Achievements = () => {
         </div>
 
         {/* Study Milestones */}
-        <div className="milestones-section">
-          <h2 className="section-title">
-            <span className="title-icon">🏅</span>
-            Study Milestones
-          </h2>
-          <div className="milestones-grid">
-            {studyMilestones.map((achievement) => (
-              <div key={achievement.id} className={`milestone-card ${achievement.unlocked ? 'unlocked' : 'locked'}`}>
-                <div className={`milestone-badge ${achievement.tier.toLowerCase()}`}>
-                  {achievement.tier}
-                </div>
-                <div className="milestone-icon-wrapper">
-                  {achievement.unlocked ? (
-                    <div className="milestone-icon">{achievement.icon}</div>
-                  ) : (
-                    <div className="milestone-icon locked-icon">🔒</div>
-                  )}
-                </div>
-                <h3 className="milestone-title">{achievement.title}</h3>
-                <p className="milestone-description">{achievement.description}</p>
-                
-                {achievement.unlocked ? (
-                  <div className="milestone-unlocked">
-                    <span className="unlock-icon">🔓</span>
-                    <span className="unlock-text">Unlocked {achievement.unlockedDate}</span>
-                  </div>
-                ) : (
-                  <div className="milestone-progress-section">
-                    <div className="progress-label-row">
-                      <span className="progress-label">Progress</span>
-                      <span className="progress-value">{achievement.current}/{achievement.target}</span>
-                    </div>
-                    <div className="progress-bar-wrapper">
-                      <div 
-                        className="progress-bar-fill"
-                        style={{ width: `${achievement.progress}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+            <div className="waiting-spinner"></div>
+            <p>Loading achievements...</p>
           </div>
-        </div>
+        ) : (
+          <>
+            {studyMilestones.length > 0 && (
+              <div className="milestones-section">
+                <h2 className="section-title">
+                  <span className="title-icon">🏅</span>
+                  Study Milestones
+                </h2>
+                <div className="milestones-grid">
+                  {studyMilestones.map((achievement) => (
+                    <div key={achievement._id || achievement.id} className={`milestone-card ${achievement.unlocked ? 'unlocked' : 'locked'}`}>
+                      <div className={`milestone-badge ${(achievement.tier || 'SILVER').toLowerCase()}`}>
+                        {achievement.tier || 'SILVER'}
+                      </div>
+                      <div className="milestone-icon-wrapper">
+                        {achievement.unlocked ? (
+                          <div className="milestone-icon">{achievement.icon || '⭐'}</div>
+                        ) : (
+                          <div className="milestone-icon locked-icon">🔒</div>
+                        )}
+                      </div>
+                      <h3 className="milestone-title">{achievement.title}</h3>
+                      <p className="milestone-description">{achievement.description}</p>
+                      
+                      {achievement.unlocked ? (
+                        <div className="milestone-unlocked">
+                          <span className="unlock-icon">🔓</span>
+                          <span className="unlock-text">Unlocked {achievement.unlockedAt ? new Date(achievement.unlockedAt).toLocaleDateString() : 'Recently'}</span>
+                        </div>
+                      ) : (
+                        <div className="milestone-progress-section">
+                          <div className="progress-label-row">
+                            <span className="progress-label">Progress</span>
+                            <span className="progress-value">{achievement.current || 0}/{achievement.target}</span>
+                          </div>
+                          <div className="progress-bar-wrapper">
+                            <div 
+                              className="progress-bar-fill"
+                              style={{ width: `${achievement.progress || 0}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
-        {/* Streak Records */}
-        <div className="milestones-section">
-          <h2 className="section-title">
-            <span className="title-icon">🔥</span>
-            Streak Records
-          </h2>
-          <div className="milestones-grid">
-            {streakRecords.map((achievement) => (
-              <div key={achievement.id} className={`milestone-card ${achievement.unlocked ? 'unlocked' : 'locked'}`}>
-                <div className={`milestone-badge ${achievement.tier.toLowerCase()}`}>
-                  {achievement.tier}
-                </div>
-                <div className="milestone-icon-wrapper">
-                  {achievement.unlocked ? (
-                    <div className="milestone-icon">{achievement.icon}</div>
-                  ) : (
-                    <div className="milestone-icon locked-icon">🔒</div>
-                  )}
-                </div>
-                <h3 className="milestone-title">{achievement.title}</h3>
-                <p className="milestone-description">{achievement.description}</p>
-                
-                {achievement.unlocked ? (
-                  <div className="milestone-unlocked">
-                    <span className="unlock-icon">🔓</span>
-                    <span className="unlock-text">Unlocked {achievement.unlockedDate}</span>
-                  </div>
-                ) : (
-                  <div className="milestone-progress-section">
-                    {achievement.currentStreak ? (
-                      <div className="progress-label-row">
-                        <span className="progress-label">Current Streak</span>
-                        <span className="progress-value streak-value">{achievement.current}/{achievement.target} days</span>
+            {/* Streak Records */}
+            {streakRecords.length > 0 && (
+              <div className="milestones-section">
+                <h2 className="section-title">
+                  <span className="title-icon">🔥</span>
+                  Streak Records
+                </h2>
+                <div className="milestones-grid">
+                  {streakRecords.map((achievement) => (
+                    <div key={achievement._id || achievement.id} className={`milestone-card ${achievement.unlocked ? 'unlocked' : 'locked'}`}>
+                      <div className={`milestone-badge ${(achievement.tier || 'SILVER').toLowerCase()}`}>
+                        {achievement.tier || 'SILVER'}
                       </div>
-                    ) : (
-                      <div className="progress-label-row">
-                        <span className="progress-label">Progress</span>
-                        <span className="progress-value">{achievement.current}/{achievement.target}</span>
+                      <div className="milestone-icon-wrapper">
+                        {achievement.unlocked ? (
+                          <div className="milestone-icon">{achievement.icon || '🔥'}</div>
+                        ) : (
+                          <div className="milestone-icon locked-icon">🔒</div>
+                        )}
                       </div>
-                    )}
-                    <div className="progress-bar-wrapper">
-                      <div 
-                        className="progress-bar-fill"
-                        style={{ width: `${achievement.progress}%` }}
-                      ></div>
+                      <h3 className="milestone-title">{achievement.title}</h3>
+                      <p className="milestone-description">{achievement.description}</p>
+                      
+                      {achievement.unlocked ? (
+                        <div className="milestone-unlocked">
+                          <span className="unlock-icon">🔓</span>
+                          <span className="unlock-text">Unlocked {achievement.unlockedAt ? new Date(achievement.unlockedAt).toLocaleDateString() : 'Recently'}</span>
+                        </div>
+                      ) : (
+                        <div className="milestone-progress-section">
+                          {achievement.achievementType === 'streak_master' || achievement.achievementType === 'perfect_week' ? (
+                            <div className="progress-label-row">
+                              <span className="progress-label">Current Streak</span>
+                              <span className="progress-value streak-value">{achievement.current || 0}/{achievement.target} days</span>
+                            </div>
+                          ) : (
+                            <div className="progress-label-row">
+                              <span className="progress-label">Progress</span>
+                              <span className="progress-value">{achievement.current || 0}/{achievement.target}</span>
+                            </div>
+                          )}
+                          <div className="progress-bar-wrapper">
+                            <div 
+                              className="progress-bar-fill"
+                              style={{ width: `${achievement.progress || 0}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
-        </div>
+            )}
+
+            {/* Other Achievements */}
+            {otherAchievements.length > 0 && (
+              <div className="milestones-section">
+                <h2 className="section-title">
+                  <span className="title-icon">⭐</span>
+                  Other Achievements
+                </h2>
+                <div className="milestones-grid">
+                  {otherAchievements.map((achievement) => (
+                    <div key={achievement._id || achievement.id} className={`milestone-card ${achievement.unlocked ? 'unlocked' : 'locked'}`}>
+                      <div className={`milestone-badge ${(achievement.tier || 'SILVER').toLowerCase()}`}>
+                        {achievement.tier || 'SILVER'}
+                      </div>
+                      <div className="milestone-icon-wrapper">
+                        {achievement.unlocked ? (
+                          <div className="milestone-icon">{achievement.icon || '⭐'}</div>
+                        ) : (
+                          <div className="milestone-icon locked-icon">🔒</div>
+                        )}
+                      </div>
+                      <h3 className="milestone-title">{achievement.title}</h3>
+                      <p className="milestone-description">{achievement.description}</p>
+                      
+                      {achievement.unlocked ? (
+                        <div className="milestone-unlocked">
+                          <span className="unlock-icon">🔓</span>
+                          <span className="unlock-text">Unlocked {achievement.unlockedAt ? new Date(achievement.unlockedAt).toLocaleDateString() : 'Recently'}</span>
+                        </div>
+                      ) : (
+                        <div className="milestone-progress-section">
+                          <div className="progress-label-row">
+                            <span className="progress-label">Progress</span>
+                            <span className="progress-value">{achievement.current || 0}/{achievement.target}</span>
+                          </div>
+                          <div className="progress-bar-wrapper">
+                            <div 
+                              className="progress-bar-fill"
+                              style={{ width: `${achievement.progress || 0}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </main>
 
       {/* Help Button */}

@@ -258,6 +258,10 @@ export const getStudyRoom = async (roomCode) => {
   return apiCall(`/study-rooms/${roomCode}`);
 };
 
+export const getAllStudyRooms = async () => {
+  return apiCall('/study-rooms');
+};
+
 export const updateScrollPosition = async (roomCode, scrollPosition) => {
   return apiCall(`/study-rooms/${roomCode}/scroll`, {
     method: 'POST',
@@ -344,6 +348,20 @@ export const sendChatMessage = async (roomCode, userId, username, message) => {
   });
 };
 
+export const toggleReadyStatus = async (roomCode, userId) => {
+  return apiCall(`/study-rooms/${roomCode}/ready`, {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  });
+};
+
+export const startStudySession = async (roomCode, userId, duration) => {
+  return apiCall(`/study-rooms/${roomCode}/start`, {
+    method: 'POST',
+    body: JSON.stringify({ userId, duration }),
+  });
+};
+
 export const controlStudyTimer = async (roomCode, action, duration) => {
   return apiCall(`/study-rooms/${roomCode}/timer`, {
     method: 'POST',
@@ -367,6 +385,13 @@ export const deleteStudyRoom = async (roomCode, userId) => {
 
 export const getUser = async (userId) => {
   return apiCall(`/users/${userId}`);
+};
+
+export const updateUserProfile = async (userId, profileData) => {
+  return apiCall(`/users/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify(profileData),
+  });
 };
 
 // Notifications

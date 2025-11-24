@@ -5,7 +5,7 @@ import '../styles/TutorialModal.css'; // For help button styles
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
 import { getRecommendedStudyDuration } from '../services/aiService';
-import { getStudySessionStats, getProductivityData, getRecentActivities } from '../services/apiService';
+import { getStudySessionStats, getProductivityData, getRecentActivities, getAchievements } from '../services/apiService';
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
 
 const StudentDashboard = () => {
@@ -45,6 +45,7 @@ const StudentDashboard = () => {
     { day: 'Sun', hours: 0 }
   ]);
   const [recentActivities, setRecentActivities] = useState([]);
+  const [nextAchievements, setNextAchievements] = useState([]);
   const [loading, setLoading] = useState(true);
   
   // Get AI recommended duration on mount
@@ -126,10 +127,11 @@ const StudentDashboard = () => {
         console.log('📊 Fetching dashboard data for userId:', userId);
         
         // Use Promise.allSettled to prevent one failing request from blocking others
-        const [statsResponse, productivityResponse, activitiesResponse] = await Promise.allSettled([
+        const [statsResponse, productivityResponse, activitiesResponse, achievementsResponse] = await Promise.allSettled([
           getStudySessionStats(userId, 'week'),
           getProductivityData(userId, 'week'),
-          getRecentActivities(userId, 10)
+          getRecentActivities(userId, 10),
+          getAchievements(userId)
         ]);
 
         // Handle stats response
@@ -201,6 +203,28 @@ const StudentDashboard = () => {
           console.warn('⚠️ Activities request failed, using empty array');
           // Use empty array instead of default activities - let users see they have no activities yet
           setRecentActivities([]);
+        }
+
+        // Handle achievements response
+        if (achievementsResponse.status === 'fulfilled' && achievementsResponse.value?.success && achievementsResponse.value.achievements) {
+          console.log('✅ Achievements received:', achievementsResponse.value.achievements.length);
+          const achievements = achievementsResponse.value.achievements;
+          
+          // Filter to get next 2 unlocked achievements (or in-progress ones)
+          const unlockedOrInProgress = achievements
+            .filter(ach => !ach.unlocked) // Get achievements that are not yet unlocked
+            .sort((a, b) => {
+              // Sort by progress percentage (descending) - show closest to completion first
+              const progressA = (a.current / a.target) * 100;
+              const progressB = (b.current / b.target) * 100;
+              return progressB - progressA;
+            })
+            .slice(0, 2); // Get top 2
+          
+          setNextAchievements(unlockedOrInProgress);
+        } else {
+          console.warn('⚠️ Achievements request failed, using empty array');
+          setNextAchievements([]);
         }
         
         // Note: Active groups will need a separate endpoint
@@ -581,36 +605,39 @@ const StudentDashboard = () => {
             <div className="card">
               <div className="card-header">
                 <h3 className="card-title">Next Achievement</h3>
-                <a href="#" className="card-action">View All →</a>
+                <Link to="/achievements" className="card-action">View All →</Link>
               </div>
-              <div className="achievement-item">
-                <div className="achievement-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 17.27L18.18 21L16.54 13.97L22 9.24L14.81 8.63L12 2L9.19 8.63L2 9.24L7.46 13.97L5.82 21L12 17.27Z" />
-                  </svg>
+              {nextAchievements.length === 0 ? (
+                <div className="empty-state" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <p>No achievements in progress. Start studying to unlock achievements!</p>
                 </div>
-                <div className="achievement-info">
-                  <div className="achievement-title">Study Marathon</div>
-                  <div className="achievement-stat">75/100 hours</div>
-                  <div className="achievement-progress-bar">
-                    <div className="achievement-progress-fill" style={{ width: '75%' }}></div>
-                  </div>
-                </div>
-              </div>
-              <div className="achievement-item">
-                <div className="achievement-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
-                  </svg>
-                </div>
-                <div className="achievement-info">
-                  <div className="achievement-title">Streak Master</div>
-                  <div className="achievement-stat">15/30 days</div>
-                  <div className="achievement-progress-bar">
-                    <div className="achievement-progress-fill" style={{ width: '50%' }}></div>
-                  </div>
-                </div>
-              </div>
+              ) : (
+                nextAchievements.map((achievement, index) => {
+                  const progress = Math.min(100, (achievement.current / achievement.target) * 100);
+                  const displayValue = achievement.achievementType === 'study_marathon' 
+                    ? `${achievement.current}/${achievement.target} hours`
+                    : achievement.achievementType === 'streak_master' || achievement.achievementType === 'streak_champion'
+                    ? `${achievement.current}/${achievement.target} days`
+                    : `${achievement.current}/${achievement.target}`;
+                  
+                  return (
+                    <div key={achievement._id || achievement.id || index} className="achievement-item">
+                      <div className="achievement-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M12 17.27L18.18 21L16.54 13.97L22 9.24L14.81 8.63L12 2L9.19 8.63L2 9.24L7.46 13.97L5.82 21L12 17.27Z" />
+                        </svg>
+                      </div>
+                      <div className="achievement-info">
+                        <div className="achievement-title">{achievement.title}</div>
+                        <div className="achievement-stat">{displayValue}</div>
+                        <div className="achievement-progress-bar">
+                          <div className="achievement-progress-fill" style={{ width: `${progress}%` }}></div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

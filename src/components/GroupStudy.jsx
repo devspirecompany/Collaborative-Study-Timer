@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
@@ -558,10 +558,10 @@ const GroupStudy = () => {
     }
   };
 
-  // Timer for each question
+  // Timer for each question - using setInterval for proper countdown
   useEffect(() => {
     if (isInCompetition && timeRemaining > 0 && !answeredQuestions.has(currentQuestionIndex)) {
-      const timer = setTimeout(() => {
+      const timer = setInterval(() => {
         setTimeRemaining(prev => {
           if (prev <= 1) {
             // Time's up - mark as incorrect
@@ -572,7 +572,7 @@ const GroupStudy = () => {
         });
       }, 1000);
 
-      return () => clearTimeout(timer);
+      return () => clearInterval(timer);
     }
   }, [isInCompetition, timeRemaining, currentQuestionIndex, answeredQuestions]);
 
@@ -1557,49 +1557,267 @@ const GroupStudy = () => {
           </div>
         )}
 
-        {/* Collaborative Study Mode */}
+        {/* Collaborative Study Mode - Direct Study Rooms List */}
         {studyMode === 'collaborative' && (
-          <div className="collaborative-lobby">
-            <div className="lobby-card">
-              <div className="lobby-icon">
-                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                  <circle cx="9" cy="7" r="4"/>
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-              </div>
-              <h2>Study Together</h2>
-              <p>Create or join a study room to collaborate with other students. Share documents, take notes together, and study synchronously!</p>
-              
-              <div className="collaborative-features">
-                <h3>Key Features:</h3>
-                <ul>
-                  <li>✏️ <strong>Shared Notes</strong> - Collaborate on study notes in real-time</li>
-                  <li>💬 <strong>Live Chat</strong> - Discuss and ask questions together</li>
-                  <li>📚 <strong>Document Sharing</strong> - Upload and share study materials</li>
-                </ul>
+          <div style={{ 
+            background: 'var(--bg-card)', 
+            borderRadius: '20px', 
+            padding: '2rem',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.1)',
+            border: '1px solid var(--border)'
+          }}>
+            {/* Header with Create Button and Join Input */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginBottom: '1.5rem',
+              paddingBottom: '1rem',
+              borderBottom: '2px solid var(--border)',
+              gap: '1rem',
+              flexWrap: 'wrap'
+            }}>
+              <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: '600', color: 'var(--text-primary)' }}>
+                📚 Study Rooms
+              </h2>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.75rem',
+                flex: 1,
+                maxWidth: '600px',
+                justifyContent: 'flex-end'
+              }}>
+                {/* Join Room Input */}
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.5rem',
+                  flex: 1,
+                  minWidth: '250px'
+                }}>
+                  <input
+                    type="text"
+                    placeholder="Enter room code (e.g., STUDY-ABC123)"
+                    value={roomCode}
+                    onChange={(e) => {
+                      setRoomCode(e.target.value.toUpperCase());
+                      if (joinRoomError) setJoinRoomError(''); // Clear error when typing
+                    }}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && roomCode.trim()) {
+                        handleJoinRoom();
+                      }
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '0.75rem 1rem',
+                      background: 'var(--bg-input)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.9rem',
+                      textTransform: 'uppercase',
+                      minWidth: '200px'
+                    }}
+                  />
+                  <button
+                    className="btn-primary"
+                    onClick={handleJoinRoom}
+                    disabled={!roomCode.trim() || isJoiningRoom}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.75rem 1.25rem',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {isJoiningRoom ? (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="spinner">
+                          <circle cx="12" cy="12" r="10" strokeDasharray="60" strokeDashoffset="30"/>
+                        </svg>
+                        Joining...
+                      </>
+                    ) : (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                          <polyline points="10 17 15 12 10 7"/>
+                          <line x1="15" y1="12" x2="3" y2="12"/>
+                        </svg>
+                        Join
+                      </>
+                    )}
+                  </button>
+                </div>
                 
-                <h3 style={{ marginTop: '1.5rem' }}>Question Generation:</h3>
-                <ul>
-                  <li>🤖 <strong>AI Generation</strong> - Questions automatically generated from uploaded files</li>
-                  <li>📁 <strong>File Selection</strong> - Choose which file to use for question generation</li>
-                </ul>
-              </div>
-
-              <div className="room-actions">
+                {/* Create Room Button */}
                 <button 
-                  className="btn-create-room" 
-                  onClick={() => setShowRoomBrowserModal(true)}
+                  className="btn-primary" 
+                  onClick={handleCreateRoom}
+                  disabled={isCreatingRoom}
+                  style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.75rem 1.5rem',
+                    whiteSpace: 'nowrap'
+                  }}
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                    <line x1="3" y1="9" x2="21" y2="9"/>
-                    <line x1="9" y1="21" x2="9" y2="9"/>
-                  </svg>
-                  Browse Study Rooms
+                  {isCreatingRoom ? (
+                    <>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="spinner">
+                        <circle cx="12" cy="12" r="10" strokeDasharray="60" strokeDashoffset="30"/>
+                      </svg>
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                      </svg>
+                      Create New Room
+                    </>
+                  )}
                 </button>
               </div>
+            </div>
+            
+            {/* Error Message Display */}
+            {joinRoomError && (
+              <div style={{
+                padding: '0.75rem 1rem',
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '8px',
+                color: '#ef4444',
+                fontSize: '0.9rem',
+                marginBottom: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                {joinRoomError}
+              </div>
+            )}
+
+            {/* Room List */}
+            <div style={{ maxHeight: '600px', overflow: 'auto' }}>
+              {availableRooms.length === 0 ? (
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ margin: '0 auto 1rem', opacity: 0.5 }}>
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                  <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>No active rooms available</p>
+                  <p style={{ fontSize: '0.9rem' }}>Create a new room to get started!</p>
+                </div>
+              ) : (
+                availableRooms.map((room) => (
+                  <div 
+                    key={room.id}
+                    onClick={() => {
+                      // Show join room modal with pre-filled room code
+                      if (room.roomCode || room.id) {
+                        setRoomCode(room.roomCode || room.id);
+                      } else {
+                        setRoomCode('');
+                      }
+                      setJoinRoomError(''); // Clear any previous errors
+                      setShowJoinRoomModal(true);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '1.25rem',
+                      marginBottom: '1rem',
+                      background: 'var(--bg-input)',
+                      borderRadius: '12px',
+                      border: '1px solid var(--border)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)';
+                      e.currentTarget.style.borderColor = 'var(--primary)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.2)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'var(--bg-input)';
+                      e.currentTarget.style.borderColor = 'var(--border)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  >
+                    {/* Subject Icon */}
+                    <div style={{ 
+                      width: '48px', 
+                      height: '48px', 
+                      borderRadius: '12px', 
+                      background: 'linear-gradient(135deg, var(--primary) 0%, #2563eb 100%)', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      marginRight: '1rem',
+                      fontSize: '1.5rem',
+                      boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)'
+                    }}>
+                      📚
+                    </div>
+
+                    {/* Room Info */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: '600', fontSize: '1.1rem', marginBottom: '0.25rem', color: 'var(--text-primary)' }}>
+                        {room.name || room.roomName || 'Study Room'}
+                      </div>
+                      <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                        Host: {room.host || room.hostName}
+                        {room.participants !== undefined && ` • ${room.participants} participant${room.participants !== 1 ? 's' : ''}`}
+                      </div>
+                    </div>
+
+                    {/* Player Count */}
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '0.5rem',
+                      padding: '0.5rem 1rem',
+                      background: 'var(--bg-primary)',
+                      borderRadius: '8px',
+                      fontSize: '0.9rem',
+                      fontWeight: '600',
+                      marginRight: '1rem',
+                      border: '1px solid var(--border)'
+                    }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                      </svg>
+                      {room.players || 0}/{room.maxPlayers || 10}
+                    </div>
+
+                    {/* Join Arrow */}
+                    <div style={{ color: 'var(--primary)' }}>
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="9 18 15 12 9 6"/>
+                      </svg>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -1608,7 +1826,7 @@ const GroupStudy = () => {
         {showRoomCodeModal && createdRoomCode && (
           <div className="modal-overlay" onClick={() => setShowRoomCodeModal(false)}>
             <div className="modal-content room-code-modal" onClick={(e) => e.stopPropagation()} style={{ 
-              maxWidth: '450px',
+              maxWidth: '600px',
               width: '90%',
               padding: '0'
             }}>
@@ -1635,38 +1853,105 @@ const GroupStudy = () => {
                     <p style={{ margin: 0, fontSize: '0.8rem' }}>Share this code with up to {maxPlayers} players. Once everyone joins, you can start the quiz!</p>
                   </div>
                 )}
-                <div className="room-code-display" style={{ marginBottom: '0' }}>
-                  <p className="room-code-label" style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>
-                    {competitionType === 'group' ? `Share this quiz code with up to ${maxPlayers} players:` : 'Share this code with your friends:'}
-                  </p>
-                  <div className="room-code-box">
-                    <span className="room-code-text" style={{ fontSize: '0.95rem', wordBreak: 'break-all' }}>{createdRoomCode}</span>
-                    <button 
-                      className="btn-copy-code" 
-                      onClick={handleCopyRoomCode}
-                      title="Copy code"
-                      style={{ padding: '0.5rem' }}
-                    >
-                      {copiedCode ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="20 6 9 17 4 12"/>
-                        </svg>
-                      ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                        </svg>
-                      )}
-                    </button>
+                <div className="room-code-display" style={{ 
+                  marginBottom: '0', 
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  width: '100%'
+                }}>
+                  {/* Room Code Box - Centered and Compact */}
+                  <div style={{ 
+                    width: '100%',
+                    marginBottom: '1.25rem',
+                    display: 'flex',
+                    justifyContent: 'center'
+                  }}>
+                    <div className="room-code-box" style={{ 
+                      width: '100%',
+                      maxWidth: '100%',
+                      padding: '1.5rem 1.25rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '1rem',
+                      margin: '0 auto'
+                    }}>
+                      <span className="room-code-text" style={{ 
+                        fontSize: '1.5rem', 
+                        fontFamily: 'Courier New, monospace',
+                        fontWeight: '600',
+                        letterSpacing: '0.15em',
+                        color: 'var(--primary)',
+                        whiteSpace: 'nowrap',
+                        textAlign: 'center',
+                        width: '100%',
+                        display: 'block'
+                      }}>{createdRoomCode}</span>
+                      <button 
+                        className="btn-copy-code" 
+                        onClick={handleCopyRoomCode}
+                        title="Copy code"
+                        style={{ 
+                          padding: '0.625rem 1.25rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '0.5rem',
+                          fontSize: '0.85rem',
+                          fontWeight: '500'
+                        }}
+                      >
+                        {copiedCode ? (
+                          <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                            </svg>
+                            <span>Copy Code</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
-                  {copiedCode && (
-                    <p className="copy-success" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>✓ Code copied to clipboard!</p>
-                  )}
-                  <p className="room-code-hint" style={{ fontSize: '0.8rem', marginTop: '0.75rem', marginBottom: '0' }}>Your friends can join by entering this code</p>
+                  
+                  {/* Instruction Text - Below the code box, centered */}
+                  <p style={{ 
+                    fontSize: '0.95rem', 
+                    color: 'var(--text-secondary)',
+                    marginTop: '0',
+                    marginBottom: '0',
+                    lineHeight: '1.5',
+                    textAlign: 'center',
+                    width: '100%'
+                  }}>
+                    {competitionType === 'group' 
+                      ? `Share this quiz code with up to ${maxPlayers} players` 
+                      : 'Share this code with your friends'}
+                  </p>
                 </div>
               </div>
               <div className="modal-actions" style={{ padding: '1rem 1.5rem 1.5rem 1.5rem', marginTop: '0', gap: '0.75rem' }}>
-                <button className="btn-secondary" onClick={() => setShowRoomCodeModal(false)} style={{ flex: 1 }}>
+                <button 
+                  className="btn-secondary" 
+                  onClick={() => setShowRoomCodeModal(false)} 
+                  style={{ 
+                    flex: 1,
+                    textAlign: 'center',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
                   Close
                 </button>
                 {competitionType === 'group' ? (
@@ -1677,7 +1962,13 @@ const GroupStudy = () => {
                       // Start polling for players - quiz will start when host clicks start
                       pollForGroupQuizPlayers(createdRoomCode);
                     }}
-                    style={{ flex: 1 }}
+                    style={{ 
+                      flex: 1,
+                      textAlign: 'center',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
                   >
                     Wait for Players
                   </button>
@@ -1685,7 +1976,13 @@ const GroupStudy = () => {
                   <button 
                     className="btn-primary" 
                     onClick={handleJoinCreatedRoom}
-                    style={{ flex: 1 }}
+                    style={{ 
+                      flex: 1,
+                      textAlign: 'center',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
                   >
                     Enter Room
                   </button>
@@ -1770,7 +2067,11 @@ const GroupStudy = () => {
                   className="btn-secondary" 
                   onClick={() => setShowJoinRoomModal(false)}
                   style={{ 
-                    minWidth: '100px'
+                    minWidth: '100px',
+                    textAlign: 'center',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
                 >
                   Cancel
@@ -1780,7 +2081,11 @@ const GroupStudy = () => {
                   onClick={handleJoinRoom}
                   disabled={isJoiningRoom}
                   style={{ 
-                    minWidth: '100px'
+                    minWidth: '100px',
+                    textAlign: 'center',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
                 >
                   {isJoiningRoom ? 'Joining...' : 'Join Room'}
@@ -2466,7 +2771,10 @@ const GroupStudy = () => {
       {/* Invite Player Modal (Room Code) */}
       {showInvitePlayerModal && createdRoomCode && (
         <div className="modal-overlay" onClick={() => setShowInvitePlayerModal(false)}>
-          <div className="modal-content room-code-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content room-code-modal" onClick={(e) => e.stopPropagation()} style={{ 
+            maxWidth: '600px',
+            width: '90%'
+          }}>
             <div className="modal-header">
               <h2>Invite Player</h2>
               <button className="modal-close" onClick={() => setShowInvitePlayerModal(false)}>
@@ -2477,31 +2785,88 @@ const GroupStudy = () => {
               </button>
             </div>
             <div className="modal-body">
-              <div className="room-code-display">
-                <p className="room-code-label">Share this code with your opponent:</p>
-                <div className="room-code-box">
-                  <span className="room-code-text">{createdRoomCode}</span>
-                  <button 
-                    className="btn-copy-code" 
-                    onClick={handleCopyRoomCode}
-                    title="Copy code"
-                  >
-                    {copiedCode ? (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                    ) : (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                      </svg>
-                    )}
-                  </button>
+              <div className="room-code-display" style={{ 
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                width: '100%'
+              }}>
+                {/* Room Code Box - Centered and Compact */}
+                <div style={{ 
+                  width: '100%',
+                  marginBottom: '1.25rem',
+                  display: 'flex',
+                  justifyContent: 'center'
+                }}>
+                  <div className="room-code-box" style={{ 
+                    width: '100%',
+                    maxWidth: '100%',
+                    padding: '1.5rem 1.25rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '1rem',
+                    margin: '0 auto'
+                  }}>
+                    <span className="room-code-text" style={{ 
+                      fontSize: '1.5rem', 
+                      fontFamily: 'Courier New, monospace',
+                      fontWeight: '600',
+                      letterSpacing: '0.15em',
+                      color: 'var(--primary)',
+                      whiteSpace: 'nowrap',
+                      textAlign: 'center',
+                      width: '100%',
+                      display: 'block'
+                    }}>{createdRoomCode}</span>
+                    <button 
+                      className="btn-copy-code" 
+                      onClick={handleCopyRoomCode}
+                      title="Copy code"
+                      style={{ 
+                        padding: '0.625rem 1.25rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        fontSize: '0.85rem',
+                        fontWeight: '500'
+                      }}
+                    >
+                      {copiedCode ? (
+                        <>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                          <span>Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                          </svg>
+                          <span>Copy Code</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-                {copiedCode && (
-                  <p className="copy-success">✓ Code copied to clipboard!</p>
-                )}
-                <p className="room-code-hint">Waiting for opponent to join...</p>
+                
+                {/* Instruction Text - Below the code box, centered */}
+                <p style={{ 
+                  fontSize: '0.95rem', 
+                  color: 'var(--text-secondary)',
+                  marginTop: '0',
+                  marginBottom: '0',
+                  lineHeight: '1.5',
+                  textAlign: 'center',
+                  width: '100%'
+                }}>
+                  Share this code with your opponent
+                </p>
               </div>
             </div>
             <div className="modal-actions">

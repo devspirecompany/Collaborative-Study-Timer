@@ -252,5 +252,60 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
+/**
+ * PUT /api/users/:userId
+ * Update user profile
+ */
+router.put('/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { firstName, lastName, username, avatar } = req.body;
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Update allowed fields only (don't allow email/password changes here)
+    if (firstName !== undefined) user.firstName = firstName.trim();
+    if (lastName !== undefined) user.lastName = lastName.trim();
+    if (username !== undefined) {
+      // Check if username is already taken by another user
+      const existingUser = await User.findOne({ username: username.trim(), _id: { $ne: userId } });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Username already taken'
+        });
+      }
+      user.username = username.trim();
+    }
+    if (avatar !== undefined) user.avatar = avatar;
+
+    await user.save();
+
+    // Don't send password back
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: userResponse
+    });
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating profile',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
 

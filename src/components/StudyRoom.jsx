@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
-import { getStudyRoom, joinStudyRoom, leaveStudyRoom, controlStudyTimer, startStudyRoomQuiz, submitQuizAnswer, nextQuizQuestion, endStudyRoomQuiz, shareFileInRoom, removeSharedFile, sendChatMessage, setRoomDocument, clearRoomDocument, setRoomReviewer } from '../services/apiService';
+import { getStudyRoom, joinStudyRoom, leaveStudyRoom, controlStudyTimer, startStudyRoomQuiz, submitQuizAnswer, nextQuizQuestion, endStudyRoomQuiz, shareFileInRoom, removeSharedFile, sendChatMessage, setRoomDocument, clearRoomDocument, setRoomReviewer, toggleReadyStatus, startStudySession } from '../services/apiService';
 import { getFiles, createFile, getFolders, createFolder } from '../services/apiService';
 import { generateQuestionsFromFile, createReviewerFromFile } from '../services/aiService';
 import '../styles/StudyRoom.css';
@@ -68,6 +68,17 @@ const StudyRoom = () => {
   const [viewMode, setViewMode] = useState('raw'); // 'raw' or 'reviewer'
   const [reviewerContent, setReviewerContent] = useState(null);
   const [isGeneratingReviewer, setIsGeneratingReviewer] = useState(false);
+  
+  // Full-screen reviewer UI states (matching Practice component)
+  const [paperStyle, setPaperStyle] = useState('blank'); // 'blank', 'lined', 'grid'
+  const [paperColor, setPaperColor] = useState('white'); // 'white', 'cream', 'blue', 'green', 'purple'
+  const [reviewerViewMode, setReviewerViewMode] = useState('document'); // 'document' or 'flashcards'
+  const [flashcardIndex, setFlashcardIndex] = useState(0);
+  const [timerPosition, setTimerPosition] = useState({ x: null, y: null });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const timerRef = useRef(null);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   
   // Chat states
   const [chatMessage, setChatMessage] = useState('');
@@ -811,6 +822,139 @@ const StudyRoom = () => {
     }
   };
 
+  // Toggle ready status
+  const handleToggleReady = async () => {
+    try {
+      const response = await toggleReadyStatus(roomCode, userId);
+      if (response.success) {
+        // Room will update via polling
+      } else {
+        alert(response.message || 'Failed to toggle ready status');
+      }
+    } catch (error) {
+      console.error('Error toggling ready status:', error);
+      alert(error.message || 'Failed to toggle ready status');
+    }
+  };
+
+  // Start study session (host only, requires all ready)
+  const handleStartStudySession = async (duration = 25 * 60) => {
+    try {
+      const response = await startStudySession(roomCode, userId, duration);
+      if (response.success) {
+        // Room will update via polling, timer will start
+      } else {
+        alert(response.message || 'Failed to start study session');
+      }
+    } catch (error) {
+      console.error('Error starting study session:', error);
+      alert(error.message || 'Failed to start study session');
+    }
+  };
+
+  // Helper functions for full-screen reviewer UI
+  const cleanContent = (content) => {
+    if (!content) return '';
+    return content
+      .replace(/^#{1,6}\s+/gm, '') // Remove markdown headers
+      .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold
+      .replace(/\*(.*?)\*/g, '$1') // Remove italic
+      .replace(/\n{3,}/g, '\n\n'); // Clean up extra newlines
+  };
+
+  const paperColors = {
+    white: { bg: '#ffffff', text: '#000000', line: 'rgba(224, 224, 224, 0.5)' },
+    cream: { bg: '#fefcf8', text: '#2c2416', line: 'rgba(200, 180, 150, 0.4)' },
+    blue: { bg: '#f0f7ff', text: '#1a365d', line: 'rgba(147, 197, 253, 0.4)' },
+    green: { bg: '#f0fdf4', text: '#14532d', line: 'rgba(134, 239, 172, 0.4)' },
+    purple: { bg: '#faf5ff', text: '#581c87', line: 'rgba(196, 181, 253, 0.4)' }
+  };
+
+  // Draggable timer handlers
+  const handleTimerMouseDown = (e) => {
+    if (e.target.closest('button')) return; // Don't drag if clicking button
+    setIsDragging(true);
+    const rect = timerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setDragOffset({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMove = (e) => {
+      const newX = e.clientX - dragOffset.x;
+      const newY = e.clientY - dragOffset.y;
+      
+      if (timerRef.current) {
+        const maxX = window.innerWidth - timerRef.current.offsetWidth;
+        const maxY = window.innerHeight - timerRef.current.offsetHeight;
+        
+        setTimerPosition({
+          x: Math.max(0, Math.min(newX, maxX)),
+          y: Math.max(80, Math.min(newY, maxY))
+        });
+      }
+    };
+
+    const handleUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+  }, [isDragging, dragOffset]);
+
+  // Reset flashcard index when reviewer content changes
+  useEffect(() => {
+    if (reviewerContent) {
+      setFlashcardIndex(0);
+    }
+  }, [reviewerContent]);
+
+  // Reset flashcard index when view mode changes
+  useEffect(() => {
+    if (reviewerViewMode === 'flashcards') {
+      setFlashcardIndex(0);
+    }
+  }, [reviewerViewMode]);
+
+  // Handle exit reviewer view
+  const handleExitReviewer = () => {
+    const timerRunning = room?.studyTimer?.isRunning;
+    const totalDuration = room?.studyTimer?.duration || 0;
+    const timeRemaining = localTimeRemaining || 0;
+    const progressPercent = totalDuration > 0 ? ((totalDuration - timeRemaining) / totalDuration) * 100 : 0;
+    
+    if (timerRunning || progressPercent > 5) {
+      setShowExitConfirm(true);
+    } else {
+      // Exit directly if minimal progress
+      setViewingFile(null);
+      setReviewerContent(null);
+      setViewMode('raw');
+    }
+  };
+
+  const confirmExit = () => {
+    setViewingFile(null);
+    setReviewerContent(null);
+    setViewMode('raw');
+    setShowExitConfirm(false);
+  };
+
+  const cancelExit = () => {
+    setShowExitConfirm(false);
+  };
+
   if (isLoading) {
     return (
       <div className="dashboard-container">
@@ -842,143 +986,990 @@ const StudyRoom = () => {
     );
   }
 
+  // Check if we should hide sidebar (when in reviewer mode)
+  const showFullScreenReviewer = viewingFile && viewMode === 'reviewer' && reviewerContent;
+
   return (
-    <div className="dashboard-container">
-      <Sidebar />
-      <main className="main-content">
-        <div className="study-room-header">
-          <div>
-            <h1 className="page-title">Study Room</h1>
-            <p className="page-subtitle">{room.roomName || 'Collaborative Study Session'}</p>
-          </div>
-          <button className="btn-leave-room" onClick={handleLeaveRoom}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-              <polyline points="16 17 21 12 16 7"/>
-              <line x1="21" y1="12" x2="9" y2="12"/>
-            </svg>
-            Leave Room
-          </button>
+    <div>
+      {!showFullScreenReviewer ? (
+        <Sidebar />
+      ) : (
+        // Compact header only (no sidebar) - same as Practice
+        <div className='dashboard-container'>
+          <nav className="topnav" style={{ zIndex: 100 }}>
+            <div className="nav-left">
+              <div className="logo-nav" style={{ gap: '0.5rem' }}>
+                <img src="../imgs/SpireWorksLogo.png" alt="SpireWorks Logo" style={{ width: '32px', height: '32px' }} />
+                <h1 style={{ fontSize: '1.25rem' }}>SpireWorks</h1>
+              </div>
+            </div>
+            <div className="nav-right" style={{ gap: '0.75rem' }}>
+              <button 
+                onClick={handleLeaveRoom}
+                style={{
+                  padding: '0.5rem 1rem',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: '8px',
+                  color: '#ef4444',
+                  fontSize: '0.875rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                  <polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+                Leave Room
+              </button>
+            </div>
+          </nav>
         </div>
+      )}
+
+      {/* Main Content */}
+      <main className="main-content" style={{ position: 'relative' }}>
+        {!showFullScreenReviewer && (
+          <div className="study-room-header">
+            <div>
+              <h1 className="page-title">Study Room</h1>
+              <p className="page-subtitle">{room.roomName || 'Collaborative Study Session'}</p>
+            </div>
+            <button className="btn-leave-room" onClick={handleLeaveRoom}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+              Leave Room
+            </button>
+          </div>
+        )}
 
         <React.Fragment>
         {viewingFile ? (
-          /* Full Screen Document Viewer */
-          <div className="document-viewer-container">
-            {/* Document Header */}
-            <div className="document-viewer-header">
-              <div className="document-viewer-header-info">
-                <h2>📄 {viewingFile.fileName}</h2>
-                <p>
-                  {viewingFile.subject} • {viewingFile.fileType.toUpperCase()} • Shared by {viewingFile.sharedBy.username}
-                </p>
-              </div>
-              <div className="document-viewer-header-controls">
-                {isHost && (
-                  <div className="view-mode-toggle">
-                    <button
-                      onClick={async () => {
-                        try {
-                          await setRoomDocument(roomCode, userId, viewingFile.fileId, 'raw');
-                          setViewMode('raw');
-                        } catch (error) {
-                          console.error('Error switching view mode:', error);
-                        }
-                      }}
-                      className={`view-mode-btn ${viewMode === 'raw' ? 'active' : ''}`}
-                    >
-                      📄 Raw File
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (!reviewerContent) {
-                          await handleSetAsMainDocument(viewingFile, true);
-                        } else {
-                          try {
-                            await setRoomDocument(roomCode, userId, viewingFile.fileId, 'reviewer');
-                            setViewMode('reviewer');
-                          } catch (error) {
-                            console.error('Error switching view mode:', error);
-                          }
-                        }
-                      }}
-                      disabled={isGeneratingReviewer}
-                      className={`view-mode-btn ${viewMode === 'reviewer' ? 'active' : ''}`}
-                    >
-                      {isGeneratingReviewer ? '⏳ Generating...' : '🤖 AI Reviewer'}
-                    </button>
-                  </div>
-                )}
-                {!isHost && (
-                  <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
-                    Viewing: {viewMode === 'raw' ? '📄 Raw File' : '🤖 AI Reviewer'}
-                  </div>
-                )}
-                {/* Timer Display */}
-                {room?.studyTimer && (
-                  <div className="timer-display">
-                    <div className="timer-display-label">⏱️ Study Timer</div>
-                    <div className="timer-display-time">
-                      {formatTime(localTimeRemaining)}
+          /* Full Screen Document Viewer with Word-Inspired UI (when reviewer mode) */
+          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+            {/* Draggable Timer - Only show when in reviewer mode and timer is active */}
+            {viewMode === 'reviewer' && room?.studyTimer && (() => {
+              const totalDuration = room.studyTimer.duration || 0;
+              const timeRemaining = localTimeRemaining || 0;
+              const progressPercent = totalDuration > 0 ? ((totalDuration - timeRemaining) / totalDuration) * 100 : 0;
+              const wordsRead = Math.floor((totalDuration - timeRemaining) / 60 * 200); // Estimate 200 words/min
+              const focusScore = Math.min(100, Math.floor(progressPercent * 1.2)); // Focus score based on progress
+              const isRunning = room.studyTimer.isRunning || false;
+              
+              // Use saved position or default to upper right
+              const defaultTop = 80;
+              const defaultRight = 32;
+              const top = timerPosition.y !== null ? timerPosition.y : defaultTop;
+              const left = timerPosition.x !== null ? timerPosition.x : null;
+              const right = timerPosition.x !== null ? null : defaultRight;
+              
+              return (
+                <div 
+                  ref={timerRef}
+                  onMouseDown={handleTimerMouseDown}
+                  style={{
+                    position: 'fixed',
+                    top: `${top}px`,
+                    left: left !== null ? `${left}px` : undefined,
+                    right: right !== null ? `${right}px` : undefined,
+                    zIndex: 1000,
+                    background: 'linear-gradient(135deg, rgba(15, 26, 46, 0.98) 0%, rgba(30, 58, 138, 0.98) 100%)',
+                    backdropFilter: 'blur(15px)',
+                    border: '1px solid rgba(59, 130, 246, 0.4)',
+                    borderRadius: '20px',
+                    padding: '1.5rem',
+                    minWidth: '240px',
+                    boxShadow: '0 15px 40px rgba(0, 0, 0, 0.6)',
+                    cursor: isDragging ? 'grabbing' : 'grab',
+                    userSelect: 'none',
+                    transition: isDragging ? 'none' : 'box-shadow 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isDragging) {
+                      e.currentTarget.style.boxShadow = '0 20px 50px rgba(0, 0, 0, 0.7)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isDragging) {
+                      e.currentTarget.style.boxShadow = '0 15px 40px rgba(0, 0, 0, 0.6)';
+                    }
+                  }}
+                >
+                  {/* Drag handle indicator */}
+                  <div style={{
+                    position: 'absolute',
+                    top: '8px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: '40px',
+                    height: '4px',
+                    background: 'rgba(255, 255, 255, 0.3)',
+                    borderRadius: '2px',
+                    cursor: 'grab'
+                  }}></div>
+                  {/* Timer Display */}
+                  <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+                    <div style={{ 
+                      fontSize: '2.5rem', 
+                      fontWeight: '700', 
+                      background: 'linear-gradient(135deg, #3b82f6, #0ea5e9)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      marginBottom: '0.25rem',
+                      lineHeight: '1'
+                    }}>
+                      {formatTime(timeRemaining)}
                     </div>
-                  </div>
-                )}
-                
-                {isHost && (
-                  <button
-                    onClick={async () => {
-                      try {
-                        await clearRoomDocument(roomCode, userId);
-                        setViewingFile(null);
-                        setReviewerContent(null);
-                        setViewMode('raw');
-                      } catch (error) {
-                        console.error('Error clearing document:', error);
-                      }
-                    }}
-                    className="btn-close-document"
-                  >
-                    ✕ Close
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Document Content - Full Screen with Chat Sidebar */}
-            <div className="document-content-wrapper">
-              {/* Document Content */}
-              <div className={`document-content-area ${showChat ? 'with-chat' : ''}`}>
-                {isGeneratingReviewer ? (
-                  <div className="generating-reviewer">
-                    <div className="spinner"></div>
-                    <p>Generating AI reviewer...</p>
-                  </div>
-                ) : viewMode === 'reviewer' && reviewerContent ? (
-                  <div className="document-content-card">
-                    <div className="document-content-text">
-                      {reviewerContent.reviewContent}
+                    <div style={{ 
+                      fontSize: '0.75rem', 
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '1px',
+                      marginBottom: '0.5rem'
+                    }}>
+                      Study Session
                     </div>
-                    {reviewerContent.keyPoints && reviewerContent.keyPoints.length > 0 && (
-                      <div className="key-points-section">
-                        <h3 className="key-points-title">📌 Key Points</h3>
-                        <ul className="key-points-list">
-                          {reviewerContent.keyPoints.map((point, idx) => (
-                            <li key={idx} className="key-point-item">
-                              {point}
-                            </li>
-                          ))}
-                        </ul>
+                    
+                    {/* Progress Bar */}
+                    <div style={{
+                      width: '100%',
+                      height: '6px',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      borderRadius: '3px',
+                      overflow: 'hidden',
+                      marginBottom: '0.75rem'
+                    }}>
+                      <div style={{
+                        width: `${progressPercent}%`,
+                        height: '100%',
+                        background: 'linear-gradient(90deg, #3b82f6, #0ea5e9)',
+                        borderRadius: '3px',
+                        transition: 'width 1s ease'
+                      }}></div>
+                    </div>
+                    
+                    {/* Stats Grid */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: '0.75rem',
+                      marginTop: '0.75rem'
+                    }}>
+                      <div style={{
+                        background: 'rgba(59, 130, 246, 0.15)',
+                        borderRadius: '8px',
+                        padding: '0.5rem',
+                        textAlign: 'center'
+                      }}>
+                        <div style={{
+                          fontSize: '0.7rem',
+                          color: 'rgba(255, 255, 255, 0.6)',
+                          marginBottom: '0.25rem'
+                        }}>Progress</div>
+                        <div style={{
+                          fontSize: '1rem',
+                          fontWeight: '600',
+                          color: '#3b82f6'
+                        }}>{Math.round(progressPercent)}%</div>
+                      </div>
+                      <div style={{
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        borderRadius: '8px',
+                        padding: '0.5rem',
+                        textAlign: 'center'
+                      }}>
+                        <div style={{
+                          fontSize: '0.7rem',
+                          color: 'rgba(255, 255, 255, 0.6)',
+                          marginBottom: '0.25rem'
+                        }}>Focus</div>
+                        <div style={{
+                          fontSize: '1rem',
+                          fontWeight: '600',
+                          color: '#10b981'
+                        }}>{focusScore}%</div>
+                      </div>
+                    </div>
+                    
+                    {isRunning && (
+                      <div style={{
+                        marginTop: '0.75rem',
+                        fontSize: '0.7rem',
+                        color: 'rgba(255, 255, 255, 0.5)',
+                        fontStyle: 'italic'
+                      }}>
+                        ~{wordsRead.toLocaleString()} words read
                       </div>
                     )}
                   </div>
-                ) : (
-                  <div className="document-content-card">
-                    <div className="document-content-text">
-                      {viewingFile.fileContent}
+                </div>
+              );
+            })()}
+
+            {/* Full Screen Document Viewer */}
+            <div className="document-viewer-container">
+            {/* Document Header - Show different UI based on view mode */}
+            {viewMode === 'reviewer' && reviewerContent ? (
+              /* Word-Inspired Full-Screen Reviewer UI - Same as Practice */
+              <div style={{
+                position: 'fixed',
+                top: '80px', // Below compact header
+                left: 0, // No sidebar
+                right: 0,
+                bottom: 0,
+                background: '#f5f5f5',
+                zIndex: 50,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                {/* Word-like Toolbar */}
+                <div style={{
+                  background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+                  borderBottom: '1px solid #e0e0e0',
+                  padding: '1rem 1.5rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '1.25rem',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                  borderTopLeftRadius: '16px',
+                  borderTopRightRadius: '16px'
+                }}>
+                  {/* Document Name with Icon */}
+                  <div style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    flex: 1,
+                    minWidth: 0
+                  }}>
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)'
+                    }}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                      </svg>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ 
+                        fontSize: '0.875rem',
+                        color: '#1f2937',
+                        fontWeight: '600',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {viewingFile.fileName}
+                      </div>
+                      <div style={{ 
+                        fontSize: '0.7rem', 
+                        color: '#6b7280',
+                        marginTop: '2px'
+                      }}>
+                        {viewingFile.subject}
+                      </div>
                     </div>
                   </div>
+                  
+                  {/* Paper Style Selector */}
+                  <div style={{
+                    display: 'flex',
+                    gap: '0.5rem',
+                    alignItems: 'center',
+                    padding: '0.5rem',
+                    background: '#f1f5f9',
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <span style={{
+                      fontSize: '0.7rem',
+                      color: '#64748b',
+                      fontWeight: '600',
+                      marginRight: '0.25rem',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>
+                      Style
+                    </span>
+                    {['blank', 'lined', 'grid'].map((style) => (
+                      <button
+                        key={style}
+                        onClick={() => setPaperStyle(style)}
+                        style={{
+                          background: paperStyle === style 
+                            ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' 
+                            : 'transparent',
+                          color: paperStyle === style ? 'white' : '#64748b',
+                          border: paperStyle === style ? 'none' : '1px solid #cbd5e1',
+                          borderRadius: '8px',
+                          padding: '0.375rem 0.75rem',
+                          cursor: 'pointer',
+                          fontSize: '0.7rem',
+                          fontWeight: '600',
+                          transition: 'all 0.3s ease',
+                          boxShadow: paperStyle === style 
+                            ? '0 2px 8px rgba(59, 130, 246, 0.3)' 
+                            : 'none',
+                          transform: paperStyle === style ? 'scale(1.05)' : 'scale(1)',
+                          textTransform: 'capitalize'
+                        }}
+                        title={`${style.charAt(0).toUpperCase() + style.slice(1)} Paper`}
+                      >
+                        {style}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* View Mode Toggle */}
+                  <div style={{
+                    display: 'flex',
+                    gap: '0.5rem',
+                    alignItems: 'center',
+                    marginRight: '1rem',
+                    padding: '0.25rem',
+                    background: '#f5f5f5',
+                    borderRadius: '8px'
+                  }}>
+                    <button
+                      onClick={() => setReviewerViewMode('document')}
+                      style={{
+                        background: reviewerViewMode === 'document' ? '#3b82f6' : 'transparent',
+                        color: reviewerViewMode === 'document' ? 'white' : '#666',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '0.375rem 0.75rem',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem',
+                        fontWeight: '500',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.375rem'
+                      }}
+                      title="Document View (Word-like)"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                      </svg>
+                      Document
+                    </button>
+                    <button
+                      onClick={() => setReviewerViewMode('flashcards')}
+                      style={{
+                        background: reviewerViewMode === 'flashcards' ? '#3b82f6' : 'transparent',
+                        color: reviewerViewMode === 'flashcards' ? 'white' : '#666',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '0.375rem 0.75rem',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem',
+                        fontWeight: '500',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.375rem'
+                      }}
+                      title="Flashcards View"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                        <line x1="8" y1="21" x2="16" y2="21"/>
+                        <line x1="12" y1="17" x2="12" y2="21"/>
+                      </svg>
+                      Flashcards
+                    </button>
+                  </div>
+
+                  {/* Paper Color Selector - Circular Design */}
+                  <div style={{
+                    display: 'flex',
+                    gap: '0.625rem',
+                    alignItems: 'center',
+                    padding: '0.5rem',
+                    background: '#f1f5f9',
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <span style={{
+                      fontSize: '0.7rem',
+                      color: '#64748b',
+                      fontWeight: '600',
+                      marginRight: '0.25rem',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>
+                      Color
+                    </span>
+                    {['white', 'cream', 'blue', 'green', 'purple'].map((color) => (
+                      <button
+                        key={color}
+                        onClick={() => setPaperColor(color)}
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          background: paperColors[color].bg,
+                          border: paperColor === color ? '3px solid #3b82f6' : '2px solid #cbd5e1',
+                          borderRadius: '50%',
+                          cursor: 'pointer',
+                          transition: 'all 0.3s ease',
+                          boxShadow: paperColor === color 
+                            ? '0 0 0 3px rgba(59, 130, 246, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1)' 
+                            : '0 1px 3px rgba(0, 0, 0, 0.1)',
+                          transform: paperColor === color ? 'scale(1.1)' : 'scale(1)'
+                        }}
+                        title={`${color.charAt(0).toUpperCase() + color.slice(1)} Paper`}
+                      />
+                    ))}
+                  </div>
+                  
+                  {/* Exit Button */}
+                  <button
+                    onClick={handleExitReviewer}
+                    style={{
+                      background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                      border: 'none',
+                      borderRadius: '10px',
+                      padding: '0.5rem 1rem',
+                      cursor: 'pointer',
+                      fontSize: '0.75rem',
+                      color: 'white',
+                      fontWeight: '600',
+                      transition: 'all 0.3s ease',
+                      boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}
+                    title="Exit reviewer"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                      <polyline points="16 17 21 12 16 7"/>
+                      <line x1="21" y1="12" x2="9" y2="12"/>
+                    </svg>
+                    Exit
+                  </button>
+                </div>
+
+                {/* Word-like Document Area */}
+                <div style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  background: '#f5f5f5',
+                  padding: '3rem',
+                  paddingLeft: '3rem',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  position: 'relative',
+                  minHeight: '100%'
+                }}>
+                  {reviewerViewMode === 'document' ? (
+                    <div style={{
+                      background: paperColors[paperColor].bg,
+                      width: '100%',
+                      maxWidth: '816px',
+                      minHeight: 'calc(100vh + 500px)',
+                      padding: '96px 96px 500px 80px',
+                      boxShadow: '0 0 10px rgba(0, 0, 0, 0.1)',
+                      fontFamily: 'Calibri, "Segoe UI", Arial, sans-serif',
+                      fontSize: '11pt',
+                      lineHeight: '1.5',
+                      color: paperColors[paperColor].text,
+                      position: 'relative',
+                      filter: !room?.studyTimer?.isRunning && room?.studyTimer?.duration > 0 ? 'blur(4px)' : 'none',
+                      transition: 'filter 0.3s ease',
+                      ...(paperStyle === 'lined' ? {
+                        background: paperColors[paperColor].bg,
+                        backgroundImage: `repeating-linear-gradient(
+                          transparent,
+                          transparent 31px,
+                          ${paperColors[paperColor].line} 31px,
+                          ${paperColors[paperColor].line} 32px
+                        )`,
+                        backgroundPosition: '80px 96px',
+                        backgroundSize: 'calc(100% - 160px) 32px',
+                        backgroundRepeat: 'repeat-y',
+                        backgroundAttachment: 'local'
+                      } : paperStyle === 'grid' ? {
+                        background: paperColors[paperColor].bg,
+                        backgroundImage: `
+                          linear-gradient(to right, ${paperColors[paperColor].line} 1px, transparent 1px),
+                          linear-gradient(to bottom, ${paperColors[paperColor].line} 1px, transparent 1px)
+                        `,
+                        backgroundSize: '20px 20px',
+                        backgroundPosition: '80px 96px',
+                        backgroundRepeat: 'repeat',
+                        backgroundAttachment: 'local'
+                      } : {
+                        background: paperColors[paperColor].bg
+                      })
+                    }}>
+                      {/* Document Title */}
+                      <h1 style={{
+                        fontSize: '18pt',
+                        fontWeight: 'bold',
+                        marginBottom: '12pt',
+                        color: paperColors[paperColor].text,
+                        textAlign: 'left'
+                      }}>
+                        {viewingFile.fileName}
+                      </h1>
+
+                      {/* Study Notes Content */}
+                      {reviewerContent.reviewContent && (
+                        <div style={{
+                          marginBottom: '24pt',
+                          whiteSpace: 'pre-wrap',
+                          wordWrap: 'break-word'
+                        }}>
+                          {cleanContent(reviewerContent.reviewContent)}
+                        </div>
+                      )}
+
+                      {/* Key Points Section */}
+                      {reviewerContent.keyPoints && reviewerContent.keyPoints.length > 0 && (
+                        <div style={{
+                          marginTop: '24pt',
+                          paddingTop: '24pt',
+                          borderTop: '1px solid #e0e0e0'
+                        }}>
+                          <h2 style={{
+                            fontSize: '14pt',
+                            fontWeight: 'bold',
+                            marginBottom: '12pt',
+                            color: paperColors[paperColor].text
+                          }}>
+                            Key Points
+                          </h2>
+                          <ul style={{
+                            listStyle: 'disc',
+                            paddingLeft: '36pt',
+                            margin: 0
+                          }}>
+                            {reviewerContent.keyPoints.map((point, idx) => (
+                              <li key={idx} style={{
+                                marginBottom: '6pt',
+                                color: paperColors[paperColor].text,
+                                lineHeight: '1.5'
+                              }}>
+                                {point}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    // Flashcards View - Single Large Card with Navigation
+                    (() => {
+                      let flashcards = [];
+                      if (reviewerContent.keyPoints && reviewerContent.keyPoints.length > 0) {
+                        flashcards = reviewerContent.keyPoints.map((point, idx) => ({
+                          type: 'keypoint',
+                          number: idx + 1,
+                          content: point
+                        }));
+                      } else {
+                        const content = reviewerContent.reviewContent || '';
+                        const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 20);
+                        flashcards = sentences.slice(0, 20).map((chunk, idx) => ({
+                          type: 'note',
+                          number: idx + 1,
+                          content: chunk.trim()
+                        }));
+                      }
+
+                      if (flashcards.length === 0) {
+                        return (
+                          <div style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '4rem',
+                            color: paperColors[paperColor].text
+                          }}>
+                            <div style={{ textAlign: 'center' }}>
+                              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ margin: '0 auto 1rem', opacity: 0.5 }}>
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                                <line x1="8" y1="21" x2="16" y2="21"/>
+                                <line x1="12" y1="17" x2="12" y2="21"/>
+                              </svg>
+                              <p style={{ fontSize: '1.1rem', fontWeight: '500' }}>No content available for flashcards</p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      const currentCard = flashcards[flashcardIndex];
+                      const canGoPrev = flashcardIndex > 0;
+                      const canGoNext = flashcardIndex < flashcards.length - 1;
+                      const isRunning = room?.studyTimer?.isRunning || false;
+                      const totalDuration = room?.studyTimer?.duration || 0;
+
+                      return (
+                        <div style={{
+                          width: '100%',
+                          maxWidth: '900px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '2rem',
+                          padding: '2rem 0',
+                          filter: !isRunning && totalDuration > 0 ? 'blur(4px)' : 'none',
+                          transition: 'filter 0.3s ease',
+                          position: 'relative'
+                        }}>
+                          {/* Previous Arrow */}
+                          <button
+                            onClick={() => setFlashcardIndex(prev => Math.max(0, prev - 1))}
+                            disabled={!canGoPrev}
+                            style={{
+                              width: '56px',
+                              height: '56px',
+                              borderRadius: '50%',
+                              background: canGoPrev ? 'rgba(59, 130, 246, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                              border: canGoPrev ? '2px solid #3b82f6' : '2px solid transparent',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: canGoPrev ? 'pointer' : 'not-allowed',
+                              transition: 'all 0.3s ease',
+                              opacity: canGoPrev ? 1 : 0.4,
+                              flexShrink: 0
+                            }}
+                          >
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={canGoPrev ? '#3b82f6' : '#999'} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="15 18 9 12 15 6"/>
+                            </svg>
+                          </button>
+
+                          {/* Large Flashcard */}
+                          <div style={{
+                            flex: 1,
+                            background: paperColors[paperColor].bg,
+                            border: `3px solid ${paperColors[paperColor].line}`,
+                            borderRadius: '24px',
+                            padding: '4rem 3rem',
+                            minHeight: '500px',
+                            maxHeight: '600px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'center',
+                            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
+                            transition: 'all 0.3s ease',
+                            position: 'relative'
+                          }}>
+                            {/* Card Number Indicator */}
+                            <div style={{
+                              position: 'absolute',
+                              top: '1.5rem',
+                              right: '1.5rem',
+                              fontSize: '0.875rem',
+                              fontWeight: '600',
+                              color: '#3b82f6',
+                              background: 'rgba(59, 130, 246, 0.1)',
+                              padding: '0.5rem 1rem',
+                              borderRadius: '20px'
+                            }}>
+                              {flashcardIndex + 1} / {flashcards.length}
+                            </div>
+
+                            {/* Card Type Label */}
+                            <div style={{
+                              fontSize: '0.875rem',
+                              fontWeight: '600',
+                              color: '#3b82f6',
+                              marginBottom: '2rem',
+                              textTransform: 'uppercase',
+                              letterSpacing: '2px'
+                            }}>
+                              {currentCard.type === 'keypoint' ? 'Key Point' : 'Study Note'} {currentCard.number}
+                            </div>
+
+                            {/* Card Content */}
+                            <div style={{
+                              fontSize: '1.5rem',
+                              color: paperColors[paperColor].text,
+                              lineHeight: '1.8',
+                              fontWeight: '500',
+                              textAlign: 'center',
+                              wordWrap: 'break-word'
+                            }}>
+                              {currentCard.content}
+                            </div>
+                          </div>
+
+                          {/* Next Arrow */}
+                          <button
+                            onClick={() => setFlashcardIndex(prev => Math.min(flashcards.length - 1, prev + 1))}
+                            disabled={!canGoNext}
+                            style={{
+                              width: '56px',
+                              height: '56px',
+                              borderRadius: '50%',
+                              background: canGoNext ? 'rgba(59, 130, 246, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                              border: canGoNext ? '2px solid #3b82f6' : '2px solid transparent',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: canGoNext ? 'pointer' : 'not-allowed',
+                              transition: 'all 0.3s ease',
+                              opacity: canGoNext ? 1 : 0.4,
+                              flexShrink: 0
+                            }}
+                          >
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={canGoNext ? '#3b82f6' : '#999'} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="9 18 15 12 9 6"/>
+                            </svg>
+                          </button>
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+
+                {/* Chat Sidebar in Reviewer Mode - Keep accessible */}
+                {showChat && (
+                  <div className="chat-sidebar-fullscreen" style={{
+                    position: 'fixed',
+                    right: 0,
+                    top: '80px',
+                    bottom: 0,
+                    width: '350px',
+                    background: 'var(--bg-card)',
+                    borderLeft: '1px solid var(--border)',
+                    zIndex: 60,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    boxShadow: '-4px 0 12px rgba(0, 0, 0, 0.1)'
+                  }}>
+                    <div className="chat-sidebar-header">
+                      <h3>💬 Chat ({room.chatMessages?.length || 0})</h3>
+                      <button
+                        onClick={() => setShowChat(false)}
+                        className="btn-collapse-chat"
+                        title="Collapse chat"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div 
+                      ref={chatMessagesRef}
+                      className="chat-messages-container"
+                    >
+                      {room.chatMessages && room.chatMessages.length > 0 ? (
+                        room.chatMessages.map((msg, idx) => (
+                          <div
+                            key={idx}
+                            className={`chat-message ${msg.userId === userId ? 'own' : 'other'}`}
+                          >
+                            <div className="chat-message-username">
+                              {msg.username} {msg.userId === userId && '(You)'}
+                            </div>
+                            <div className="chat-message-text">{msg.message}</div>
+                            <div className="chat-message-time">
+                              {new Date(msg.timestamp).toLocaleTimeString()}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem', padding: '2rem 1rem' }}>
+                          No messages yet. Start the conversation! 💬
+                        </p>
+                      )}
+                    </div>
+                    
+                    <form onSubmit={handleSendMessage} className="chat-input-form">
+                      <input
+                        type="text"
+                        value={chatMessage}
+                        onChange={(e) => setChatMessage(e.target.value)}
+                        placeholder="Type a message..."
+                        disabled={isSendingMessage}
+                        className="chat-input"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!chatMessage.trim() || isSendingMessage}
+                        className="btn-send-message"
+                      >
+                        Send
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                {/* Chat Toggle Button in Reviewer Mode */}
+                {!showChat && (
+                  <button
+                    onClick={() => setShowChat(true)}
+                    className="chat-toggle-btn"
+                    title="Open chat"
+                    style={{
+                      position: 'fixed',
+                      right: '24px',
+                      bottom: '24px',
+                      width: '56px',
+                      height: '56px',
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                      border: 'none',
+                      color: 'white',
+                      fontSize: '1.5rem',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)',
+                      zIndex: 1000,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.3s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.5)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.4)';
+                    }}
+                  >
+                    💬
+                    {room.chatMessages && room.chatMessages.length > 0 && (
+                      <span className="chat-badge" style={{
+                        position: 'absolute',
+                        top: '-4px',
+                        right: '-4px',
+                        background: '#ef4444',
+                        color: 'white',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '12px',
+                        minWidth: '20px',
+                        textAlign: 'center'
+                      }}>
+                        {room.chatMessages.length}
+                      </span>
+                    )}
+                  </button>
                 )}
               </div>
+            ) : (
+              /* Original Document Viewer for Raw File Mode */
+              <div>
+                {/* Document Header */}
+                <div className="document-viewer-header">
+                  <div className="document-viewer-header-info">
+                    <h2>📄 {viewingFile.fileName}</h2>
+                    <p>
+                      {viewingFile.subject} • {viewingFile.fileType.toUpperCase()} • Shared by {viewingFile.sharedBy.username}
+                    </p>
+                  </div>
+                  <div className="document-viewer-header-controls">
+                    {isHost && (
+                      <div className="view-mode-toggle">
+                        <button
+                          onClick={async () => {
+                            try {
+                              await setRoomDocument(roomCode, userId, viewingFile.fileId, 'raw');
+                              setViewMode('raw');
+                            } catch (error) {
+                              console.error('Error switching view mode:', error);
+                            }
+                          }}
+                          className={`view-mode-btn ${viewMode === 'raw' ? 'active' : ''}`}
+                        >
+                          📄 Raw File
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!reviewerContent) {
+                              await handleSetAsMainDocument(viewingFile, true);
+                            } else {
+                              try {
+                                await setRoomDocument(roomCode, userId, viewingFile.fileId, 'reviewer');
+                                setViewMode('reviewer');
+                              } catch (error) {
+                                console.error('Error switching view mode:', error);
+                              }
+                            }
+                          }}
+                          disabled={isGeneratingReviewer}
+                          className={`view-mode-btn ${viewMode === 'reviewer' ? 'active' : ''}`}
+                        >
+                          {isGeneratingReviewer ? '⏳ Generating...' : '🤖 AI Reviewer'}
+                        </button>
+                      </div>
+                    )}
+                    {!isHost && (
+                      <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
+                        Viewing: {viewMode === 'raw' ? '📄 Raw File' : '🤖 AI Reviewer'}
+                      </div>
+                    )}
+                    
+                    {isHost && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await clearRoomDocument(roomCode, userId);
+                            setViewingFile(null);
+                            setReviewerContent(null);
+                            setViewMode('raw');
+                          } catch (error) {
+                            console.error('Error clearing document:', error);
+                          }
+                        }}
+                        className="btn-close-document"
+                      >
+                        ✕ Close
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Document Content - Full Screen with Chat Sidebar */}
+                <div className="document-content-wrapper">
+                  {/* Document Content */}
+                  <div className={`document-content-area ${showChat ? 'with-chat' : ''}`}>
+                    {isGeneratingReviewer ? (
+                      <div className="generating-reviewer">
+                        <div className="spinner"></div>
+                        <p>Generating AI reviewer...</p>
+                      </div>
+                    ) : (
+                      <div className="document-content-card">
+                        <div className="document-content-text">
+                          {viewingFile.fileContent}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
               {/* Chat Sidebar in Full Screen */}
               {showChat && (
@@ -1055,6 +2046,9 @@ const StudyRoom = () => {
                   )}
                 </button>
               )}
+                </div>
+              </div>
+            )}
             </div>
           </div>
         ) : (
@@ -1112,7 +2106,11 @@ const StudyRoom = () => {
                           {participant.userId === userId && ' (You)'}
                           {participant.userId === room.hostId && ' 👑'}
                         </span>
-                        <span className="participant-status">Online</span>
+                        <span className="participant-status">
+                          {participant.userId === room.hostId 
+                            ? 'Host' 
+                            : (participant.ready ? '✅ Ready' : '⏳ Not Ready')}
+                        </span>
                       </div>
                     </div>
                   ))
@@ -1223,7 +2221,7 @@ const StudyRoom = () => {
                               </button>
                             </>
                           )}
-                          {canRemove && (
+                          {isHost && (
                             <button
                               onClick={() => handleRemoveSharedFile(sharedFile.fileId)}
                               style={{
@@ -1235,7 +2233,7 @@ const StudyRoom = () => {
                                 fontSize: '0.75rem',
                                 cursor: 'pointer'
                               }}
-                              title="Remove shared file"
+                              title="Remove shared file (Host only)"
                             >
                               ✕
                             </button>
@@ -1283,7 +2281,122 @@ const StudyRoom = () => {
               {room.participants && room.participants.length > 1 && (
                 <div className="ready-message">
                   <p>✅ {room.participants.length} people in the room</p>
-                  <p>Ready to start studying together!</p>
+                  {(() => {
+                    // Host is automatically ready, only count non-host participants
+                    const nonHostParticipants = room.participants.filter(p => p.userId.toString() !== room.hostId.toString());
+                    const readyCount = nonHostParticipants.filter(p => p.ready).length;
+                    const allReady = nonHostParticipants.every(p => p.ready) && nonHostParticipants.length > 0;
+                    return (
+                      <p>
+                        {allReady 
+                          ? '🎉 Everyone is ready! Host can start the study session.' 
+                          : `${readyCount}/${nonHostParticipants.length} participants ready`}
+                      </p>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Ready/Start Buttons - Only show if no quiz active and no document viewing */}
+              {!room?.quiz?.isActive && !viewingFile && (
+                <div style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
+                  {!isHost ? (
+                    // Non-host: Show Ready button
+                    (() => {
+                      const currentParticipant = room.participants?.find(p => p.userId === userId);
+                      const isReady = currentParticipant?.ready || false;
+                      return (
+                        <button
+                          onClick={handleToggleReady}
+                          style={{
+                            padding: '1rem 2rem',
+                            background: isReady ? '#4caf50' : 'var(--primary)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '12px',
+                            fontSize: '1.1rem',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.75rem',
+                            transition: 'all 0.2s',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                        >
+                          {isReady ? (
+                            <>
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                              </svg>
+                              Ready!
+                            </>
+                          ) : (
+                            <>
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <polyline points="12 6 12 12 16 14"/>
+                              </svg>
+                              Mark as Ready
+                            </>
+                          )}
+                        </button>
+                      );
+                    })()
+                  ) : (
+                    // Host: Show Start button (only when all non-host participants are ready)
+                    (() => {
+                      // Host is automatically ready, only check non-host participants
+                      const nonHostParticipants = room.participants?.filter(p => p.userId.toString() !== room.hostId.toString()) || [];
+                      const allReady = nonHostParticipants.every(p => p.ready) && nonHostParticipants.length > 0;
+                      const readyCount = nonHostParticipants.filter(p => p.ready).length || 0;
+                      const totalNonHost = nonHostParticipants.length || 0;
+                      return (
+                        <div style={{ textAlign: 'center', width: '100%' }}>
+                          <button
+                            onClick={() => handleStartStudySession(25 * 60)}
+                            disabled={!allReady}
+                            style={{
+                              padding: '1rem 2rem',
+                              background: allReady ? '#4caf50' : '#ccc',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '12px',
+                              fontSize: '1.1rem',
+                              fontWeight: '600',
+                              cursor: allReady ? 'pointer' : 'not-allowed',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.75rem',
+                              margin: '0 auto',
+                              transition: 'all 0.2s',
+                              boxShadow: allReady ? '0 4px 12px rgba(76, 175, 80, 0.3)' : 'none'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (allReady) {
+                                e.currentTarget.style.transform = 'scale(1.05)';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                          >
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                            Start Study Session
+                          </button>
+                          {!allReady && (
+                            <p style={{ marginTop: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                              Waiting for {totalNonHost - readyCount} more participant{totalNonHost - readyCount !== 1 ? 's' : ''} to be ready ({readyCount}/{totalNonHost})
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
               )}
 

@@ -33,6 +33,10 @@ const studyRoomSchema = new mongoose.Schema({
     joinedAt: {
       type: Date,
       default: Date.now
+    },
+    ready: {
+      type: Boolean,
+      default: false
     }
   }],
   currentDocument: {

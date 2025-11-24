@@ -612,6 +612,145 @@ router.post('/:roomCode/chat', async (req, res) => {
 });
 
 /**
+ * POST /api/study-rooms/:roomCode/ready
+ * Toggle ready status for a participant
+ */
+router.post('/:roomCode/ready', async (req, res) => {
+  try {
+    const { roomCode } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required'
+      });
+    }
+
+    const studyRoom = await StudyRoom.findOne({ 
+      roomCode: roomCode.toUpperCase(),
+      isActive: true
+    });
+
+    if (!studyRoom) {
+      return res.status(404).json({
+        success: false,
+        message: 'Room not found'
+      });
+    }
+
+    // Find participant
+    const participant = studyRoom.participants.find(
+      p => p.userId.toString() === userId.toString()
+    );
+
+    if (!participant) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not a participant in this room'
+      });
+    }
+
+    // Toggle ready status
+    participant.ready = !participant.ready;
+    await studyRoom.save();
+
+    // Check if all participants (except host) are ready
+    // Host is automatically considered ready
+    const nonHostParticipants = studyRoom.participants.filter(p => p.userId.toString() !== studyRoom.hostId.toString());
+    const allReady = nonHostParticipants.every(p => p.ready === true) && nonHostParticipants.length > 0;
+
+    res.json({
+      success: true,
+      ready: participant.ready,
+      allReady: allReady,
+      readyCount: nonHostParticipants.filter(p => p.ready).length,
+      totalParticipants: nonHostParticipants.length
+    });
+  } catch (error) {
+    console.error('Error toggling ready status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error toggling ready status',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/study-rooms/:roomCode/start
+ * Start collaborative study session (host only, requires all ready)
+ */
+router.post('/:roomCode/start', async (req, res) => {
+  try {
+    const { roomCode } = req.params;
+    const { userId, duration } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required'
+      });
+    }
+
+    const studyRoom = await StudyRoom.findOne({ 
+      roomCode: roomCode.toUpperCase(),
+      isActive: true
+    });
+
+    if (!studyRoom) {
+      return res.status(404).json({
+        success: false,
+        message: 'Room not found'
+      });
+    }
+
+    // Only host can start
+    if (studyRoom.hostId.toString() !== userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the host can start the study session'
+      });
+    }
+
+    // Check if all participants (except host) are ready
+    // Host is automatically considered ready
+    const nonHostParticipants = studyRoom.participants.filter(p => p.userId.toString() !== studyRoom.hostId.toString());
+    const allReady = nonHostParticipants.every(p => p.ready === true) && nonHostParticipants.length > 0;
+    
+    if (!allReady || nonHostParticipants.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'All participants must be ready before starting',
+        readyCount: nonHostParticipants.filter(p => p.ready).length,
+        totalParticipants: nonHostParticipants.length
+      });
+    }
+
+    // Start the timer
+    studyRoom.studyTimer.isRunning = true;
+    studyRoom.studyTimer.duration = duration || 25 * 60; // Default 25 minutes
+    studyRoom.studyTimer.timeRemaining = duration || 25 * 60;
+    studyRoom.studyTimer.startedAt = new Date();
+
+    await studyRoom.save();
+
+    res.json({
+      success: true,
+      message: 'Study session started',
+      timer: studyRoom.studyTimer
+    });
+  } catch (error) {
+    console.error('Error starting study session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error starting study session',
+      error: error.message
+    });
+  }
+});
+
+/**
  * POST /api/study-rooms/:roomCode/timer
  * Control shared study timer
  */
@@ -633,6 +772,20 @@ router.post('/:roomCode/timer', async (req, res) => {
     }
 
     if (action === 'start') {
+      // Check if all participants (except host) are ready before allowing timer start
+      // Host is automatically considered ready
+      const nonHostParticipants = studyRoom.participants.filter(p => p.userId.toString() !== studyRoom.hostId.toString());
+      const allReady = nonHostParticipants.every(p => p.ready === true) && nonHostParticipants.length > 0;
+      
+      if (!allReady || nonHostParticipants.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'All participants must be ready before starting the timer',
+          readyCount: nonHostParticipants.filter(p => p.ready).length,
+          totalParticipants: nonHostParticipants.length
+        });
+      }
+
       // Require at least 2 participants to start timer (collaborative study)
       if (!studyRoom.participants || studyRoom.participants.length < 2) {
         return res.status(400).json({

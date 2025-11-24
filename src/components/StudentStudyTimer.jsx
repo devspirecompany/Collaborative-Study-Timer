@@ -27,11 +27,56 @@ const StudentStudyTimer = () => {
   const [recentSessions, setRecentSessions] = useState([]);
   const [userId] = useState('demo-user'); // In production, get from auth context
 
-  // Settings
-  const [autoStartBreak, setAutoStartBreak] = useState(true);
-  const [autoStartStudy, setAutoStartStudy] = useState(false);
-  const [soundNotifications, setSoundNotifications] = useState(true);
-  const [desktopNotifications, setDesktopNotifications] = useState(true);
+  // Load settings from localStorage
+  const loadUserSettings = () => {
+    try {
+      const saved = localStorage.getItem('userSettings');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+    return {
+      autoStartBreak: true,
+      autoStartStudy: false,
+      soundNotifications: true,
+      desktopNotifications: true,
+      defaultPaperStyle: 'blank',
+      defaultPaperColor: 'white',
+      defaultViewMode: 'document'
+    };
+  };
+
+  // Settings (loaded from localStorage)
+  const [autoStartBreak, setAutoStartBreak] = useState(() => {
+    const settings = loadUserSettings();
+    return settings.autoStartBreak ?? true;
+  });
+  const [autoStartStudy, setAutoStartStudy] = useState(() => {
+    const settings = loadUserSettings();
+    return settings.autoStartStudy ?? false;
+  });
+  const [soundNotifications, setSoundNotifications] = useState(() => {
+    const settings = loadUserSettings();
+    return settings.soundNotifications ?? true;
+  });
+  const [desktopNotifications, setDesktopNotifications] = useState(() => {
+    const settings = loadUserSettings();
+    return settings.desktopNotifications ?? true;
+  });
+
+  // Reload settings when component mounts or when navigating back
+  useEffect(() => {
+    const settings = loadUserSettings();
+    setAutoStartBreak(settings.autoStartBreak ?? true);
+    setAutoStartStudy(settings.autoStartStudy ?? false);
+    setSoundNotifications(settings.soundNotifications ?? true);
+    setDesktopNotifications(settings.desktopNotifications ?? true);
+    setPaperStyle(settings.defaultPaperStyle || 'blank');
+    setPaperColor(settings.defaultPaperColor || 'white');
+    setViewMode(settings.defaultViewMode || 'document');
+  }, [location.pathname]);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [hasCompletedStudySession, setHasCompletedStudySession] = useState(false);
   const [suggestBreak, setSuggestBreak] = useState(false);
@@ -43,17 +88,62 @@ const StudentStudyTimer = () => {
   const [files, setFiles] = useState([]);
   const [selectedReviewer, setSelectedReviewer] = useState(location.state?.selectedReviewer || null);
   const [isLoadingReviewers, setIsLoadingReviewers] = useState(false);
-  const [paperStyle, setPaperStyle] = useState('blank'); // 'blank', 'lined', 'grid'
-  const [paperColor, setPaperColor] = useState('white'); // 'white', 'cream', 'blue', 'green', 'purple'
-  const [viewMode, setViewMode] = useState('document'); // 'document' (Word docu vibe) or 'flashcards'
+  const [paperStyle, setPaperStyle] = useState(() => {
+    const settings = loadUserSettings();
+    return settings.defaultPaperStyle || 'blank';
+  }); // 'blank', 'lined', 'grid'
+  const [paperColor, setPaperColor] = useState(() => {
+    const settings = loadUserSettings();
+    return settings.defaultPaperColor || 'white';
+  }); // 'white', 'cream', 'blue', 'green', 'purple'
+  const [viewMode, setViewMode] = useState(() => {
+    const settings = loadUserSettings();
+    return settings.defaultViewMode || 'document';
+  }); // 'document' (Word docu vibe) or 'flashcards'
   const [flashcardIndex, setFlashcardIndex] = useState(0);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [timerPosition, setTimerPosition] = useState({ x: null, y: null }); // For draggable timer
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [hasEnteredFullScreenReviewer, setHasEnteredFullScreenReviewer] = useState(false); // Track if we've entered full-screen mode
+  
+  // Notification and Confirmation Modal States
+  const [showNotification, setShowNotification] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationType, setNotificationType] = useState('success'); // 'success' or 'error'
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [confirmationMessage, setConfirmationMessage] = useState('');
+  const [confirmationCallback, setConfirmationCallback] = useState(null);
+  
+  // Get user data from localStorage
+  const [userData] = useState(() => {
+    try {
+      const stored = localStorage.getItem('currentUser');
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+      return null;
+    }
+  });
+  
   const timerRef = useRef(null);
   const navigate = useNavigate();
+  
+  // Confirmation modal handlers
+  const handleConfirmationCancel = () => {
+    setShowConfirmationModal(false);
+    setConfirmationMessage('');
+    setConfirmationCallback(null);
+  };
+  
+  const handleConfirmationConfirm = () => {
+    if (confirmationCallback) {
+      confirmationCallback();
+    }
+    setShowConfirmationModal(false);
+    setConfirmationMessage('');
+    setConfirmationCallback(null);
+  };
 
   // Handle reviewer from redirect (from ReviewerStudy or MyFiles)
   useEffect(() => {
@@ -1525,7 +1615,15 @@ const StudentStudyTimer = () => {
                   <input
                     type="checkbox"
                     checked={autoStartBreak}
-                    onChange={(e) => setAutoStartBreak(e.target.checked)}
+                    onChange={(e) => {
+                      setAutoStartBreak(e.target.checked);
+                      // Save to localStorage
+                      const currentSettings = loadUserSettings();
+                      localStorage.setItem('userSettings', JSON.stringify({
+                        ...currentSettings,
+                        autoStartBreak: e.target.checked
+                      }));
+                    }}
                   />
                   <span>Auto-start breaks</span>
                 </label>
@@ -1535,7 +1633,15 @@ const StudentStudyTimer = () => {
                   <input
                     type="checkbox"
                     checked={autoStartStudy}
-                    onChange={(e) => setAutoStartStudy(e.target.checked)}
+                    onChange={(e) => {
+                      setAutoStartStudy(e.target.checked);
+                      // Save to localStorage
+                      const currentSettings = loadUserSettings();
+                      localStorage.setItem('userSettings', JSON.stringify({
+                        ...currentSettings,
+                        autoStartStudy: e.target.checked
+                      }));
+                    }}
                   />
                   <span>Auto-start study sessions</span>
                 </label>
@@ -1545,7 +1651,15 @@ const StudentStudyTimer = () => {
                   <input
                     type="checkbox"
                     checked={soundNotifications}
-                    onChange={(e) => setSoundNotifications(e.target.checked)}
+                    onChange={(e) => {
+                      setSoundNotifications(e.target.checked);
+                      // Save to localStorage
+                      const currentSettings = loadUserSettings();
+                      localStorage.setItem('userSettings', JSON.stringify({
+                        ...currentSettings,
+                        soundNotifications: e.target.checked
+                      }));
+                    }}
                   />
                   <span>Sound notifications</span>
                 </label>
@@ -1558,6 +1672,12 @@ const StudentStudyTimer = () => {
                     onChange={(e) => {
                       setDesktopNotifications(e.target.checked);
                       if (e.target.checked) requestNotificationPermission();
+                      // Save to localStorage
+                      const currentSettings = loadUserSettings();
+                      localStorage.setItem('userSettings', JSON.stringify({
+                        ...currentSettings,
+                        desktopNotifications: e.target.checked
+                      }));
                     }}
                   />
                   <span>Desktop notifications</span>

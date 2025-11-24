@@ -50,6 +50,10 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  avatar: {
+    type: String,
+    default: 'icon1.jpg'
+  },
   createdAt: {
     type: Date,
     default: Date.now

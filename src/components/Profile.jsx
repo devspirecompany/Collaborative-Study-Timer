@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/StudentDashboard.css';
 import Sidebar from './shared/sidebar.jsx';
+import { updateUserProfile } from '../services/apiService';
 
 const Profile = () => {
   const navigate = useNavigate();
@@ -72,25 +73,39 @@ const Profile = () => {
     setSaveMessage('');
 
     try {
-      // Update localStorage
-      const updatedUserData = {
-        ...userData,
-        ...profileData
-      };
-      localStorage.setItem('currentUser', JSON.stringify(updatedUserData));
-      setUserData(updatedUserData);
+      const userId = userData?._id || userData?.id;
+      if (!userId) {
+        throw new Error('User ID not found');
+      }
 
-      // TODO: Update backend API when ready
-      // const response = await updateUserProfile(userData._id, profileData);
-      
-      setSaveMessage('Profile updated successfully!');
-      setIsEditing(false);
+      // Update backend API
+      const response = await updateUserProfile(userId, {
+        firstName: profileData.firstName,
+        lastName: profileData.lastName,
+        username: profileData.username,
+        avatar: profileData.avatar
+      });
+
+      if (response && response.success) {
+        // Update localStorage with response from backend
+        const updatedUserData = {
+          ...userData,
+          ...response.user
+        };
+        localStorage.setItem('currentUser', JSON.stringify(updatedUserData));
+        setUserData(updatedUserData);
+        
+        setSaveMessage('Profile updated successfully!');
+        setIsEditing(false);
+      } else {
+        throw new Error(response?.message || 'Failed to update profile');
+      }
       
       // Clear message after 3 seconds
       setTimeout(() => setSaveMessage(''), 3000);
     } catch (error) {
       console.error('Error saving profile:', error);
-      setSaveMessage('Error saving profile. Please try again.');
+      setSaveMessage(error.message || 'Error saving profile. Please try again.');
     } finally {
       setIsSaving(false);
     }

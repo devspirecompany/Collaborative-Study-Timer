@@ -639,18 +639,6 @@ const MyFiles = () => {
                       </div>
                       <div className="file-actions" style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column', position: 'relative', zIndex: 10 }}>
                         <button
-<<<<<<< Updated upstream
-                          className="btn-download"
-                          onClick={() => alert(`Downloading ${file.name}...`)}
-                          title="Download file"
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                            <polyline points="7 10 12 15 17 10"/>
-                            <line x1="12" y1="15" x2="12" y2="3"/>
-                          </svg>
-                        </button>
-                        <button
                           className="btn-generate-reviewer"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -738,7 +726,6 @@ const MyFiles = () => {
                               <span>Delete</span>
                             </>
                           )}
-                        </button>
                         </button>
                       </div>
                     </div>

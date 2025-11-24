@@ -213,16 +213,18 @@ const SoloPractice = () => {
         }))
     : [];
 
-  // Initialize timer to 20 seconds
+  // Initialize timer to 20 seconds when question changes
   useEffect(() => {
-    setTimeRemaining(20);
-  }, [currentQuestionIndex]);
+    if (timeStarted && !answeredQuestions.has(currentQuestionIndex)) {
+      setTimeRemaining(20);
+    }
+  }, [currentQuestionIndex, timeStarted, answeredQuestions]);
 
-  // Countdown timer for current question
+  // Countdown timer for current question - using setInterval for proper countdown
   useEffect(() => {
     if (timeStarted && !quizCompleted && timeRemaining > 0 && !answeredQuestions.has(currentQuestionIndex)) {
       const questionIndex = currentQuestionIndex; // Capture current index
-      const timer = setTimeout(() => {
+      const timer = setInterval(() => {
         setTimeRemaining(prev => {
           if (prev <= 1) {
             // Time's up - handle directly here to avoid dependency issues
@@ -278,7 +280,7 @@ const SoloPractice = () => {
           return prev - 1;
         });
       }, 1000);
-      return () => clearTimeout(timer);
+      return () => clearInterval(timer);
     }
   }, [timeStarted, timeRemaining, currentQuestionIndex, answeredQuestions, quizCompleted, practiceQuestions]);
 
