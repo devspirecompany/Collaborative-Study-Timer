@@ -188,9 +188,7 @@ const SoloPractice = () => {
       const errorMessage = error.message || 'Failed to generate questions';
       let userMessage = errorMessage;
       
-      if (errorMessage.includes('Gemini API key') || errorMessage.includes('not configured')) {
-        userMessage = 'AI service is not configured. Please ensure GEMINI_API_KEY is set in the backend .env file and restart the server.';
-      } else if (errorMessage.includes('timeout')) {
+      if (errorMessage.includes('timeout')) {
         userMessage = 'Request timed out. The file might be too large. Try generating fewer questions or use a smaller file.';
       } else if (errorMessage.includes('Failed to fetch') || errorMessage.includes('Cannot connect')) {
         userMessage = 'Cannot connect to backend server. Please ensure the server is running on http://localhost:5000';

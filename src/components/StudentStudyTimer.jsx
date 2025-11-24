@@ -43,12 +43,23 @@ const StudentStudyTimer = () => {
   const [files, setFiles] = useState([]);
   const [selectedReviewer, setSelectedReviewer] = useState(location.state?.selectedReviewer || null);
   const [isLoadingReviewers, setIsLoadingReviewers] = useState(false);
+  const [paperStyle, setPaperStyle] = useState('blank'); // 'blank', 'lined', 'grid'
+  const [paperColor, setPaperColor] = useState('white'); // 'white', 'cream', 'blue', 'green', 'purple'
+  const [viewMode, setViewMode] = useState('document'); // 'document' (Word docu vibe) or 'flashcards'
+  const [flashcardIndex, setFlashcardIndex] = useState(0);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [timerPosition, setTimerPosition] = useState({ x: null, y: null }); // For draggable timer
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [hasEnteredFullScreenReviewer, setHasEnteredFullScreenReviewer] = useState(false); // Track if we've entered full-screen mode
+  const timerRef = useRef(null);
   const navigate = useNavigate();
 
   // Handle reviewer from redirect (from ReviewerStudy or MyFiles)
   useEffect(() => {
     if (location.state?.selectedReviewer) {
       setSelectedReviewer(location.state.selectedReviewer);
+      setFlashcardIndex(0); // Reset flashcard index when reviewer changes
       // Auto-start if requested
       if (location.state.autoStart) {
         setTimeout(() => {
@@ -59,6 +70,64 @@ const StudentStudyTimer = () => {
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, navigate]);
+
+  // Reset flashcard index when switching to flashcards view
+  useEffect(() => {
+    if (viewMode === 'flashcards') {
+      setFlashcardIndex(0);
+    }
+  }, [viewMode]);
+
+  // Check if we should show full-screen reviewer view (defined early for use in useEffect)
+  // Once entered, stay in full-screen mode even when paused
+  const showFullScreenReviewer = selectedReviewer && currentMode === 'study' && (hasEnteredFullScreenReviewer || isRunning || location.state?.fromMyFiles);
+  
+  // Track when we enter full-screen reviewer mode
+  useEffect(() => {
+    if (selectedReviewer && currentMode === 'study' && (isRunning || location.state?.fromMyFiles)) {
+      setHasEnteredFullScreenReviewer(true);
+    }
+  }, [selectedReviewer, currentMode, isRunning, location.state?.fromMyFiles]);
+  
+  // Reset when exiting reviewer mode
+  useEffect(() => {
+    if (!selectedReviewer || currentMode !== 'study') {
+      setHasEnteredFullScreenReviewer(false);
+    }
+  }, [selectedReviewer, currentMode]);
+
+  // Prevent navigation when paused in reviewer view
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (showFullScreenReviewer && !isRunning && totalTimeForSession > 0) {
+        e.preventDefault();
+        e.returnValue = 'Timer is paused. Resume timer to continue or exit properly.';
+        return e.returnValue;
+      }
+    };
+
+    const handlePopState = (e) => {
+      if (showFullScreenReviewer && !isRunning && totalTimeForSession > 0) {
+        e.preventDefault();
+        window.history.pushState(null, '', window.location.pathname);
+        // Show message to user
+        setNotificationMessage('Timer is paused. Resume timer to continue studying or exit properly.');
+        setNotificationType('error');
+        setShowNotification(true);
+      }
+    };
+
+    if (showFullScreenReviewer && !isRunning && totalTimeForSession > 0) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.history.pushState(null, '', window.location.pathname);
+      window.addEventListener('popstate', handlePopState);
+    }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [showFullScreenReviewer, isRunning, totalTimeForSession]);
 
   // Mode configurations (AI will determine study duration, but we keep break options)
   const modeConfig = {
@@ -325,76 +394,100 @@ const StudentStudyTimer = () => {
   useEffect(() => {
     if (showReviewerSelectionModal) {
       // Always fetch fresh data when modal opens
-      fetchReviewersAndFiles();
+      const effectiveUserId = userId || 'demo-user';
+      console.log('🔄 Modal opened, fetching reviewers for userId:', effectiveUserId);
+      fetchReviewersAndFiles(effectiveUserId);
     }
   }, [showReviewerSelectionModal]);
-  
-  // Also fetch when component mounts to have data ready
-  useEffect(() => {
-    // Pre-fetch reviewers and files so they're ready when modal opens
-    fetchReviewersAndFiles();
-  }, []);
 
-  const fetchReviewersAndFiles = async () => {
-    // Only show loading if modal is open
+  const fetchReviewersAndFiles = async (effectiveUserId = null) => {
+    // Use provided userId or fallback to 'demo-user' to match MyFiles behavior
+    const userIdToUse = effectiveUserId || userId || 'demo-user';
+    
+    if (!userIdToUse) {
+      console.warn('⚠️ Cannot fetch reviewers: userId is not available');
+      setReviewers({});
+      setFiles([]);
+      setIsLoadingReviewers(false);
+      return;
+    }
+
+    // Always show loading when modal is open
     if (showReviewerSelectionModal) {
       setIsLoadingReviewers(true);
     }
+    
     try {
-      console.log('🔄 Fetching reviewers and files for userId:', userId);
+      console.log('🔄 Fetching reviewers and files for userId:', userIdToUse);
+      console.log('🔄 Original userId from userData:', userId);
       
       // Fetch AI-generated reviewers
-      const reviewersResponse = await getReviewers(userId);
+      const reviewersResponse = await getReviewers(userIdToUse);
       console.log('📚 Reviewers response:', reviewersResponse);
-      const reviewersList = reviewersResponse.success ? reviewersResponse.reviewers || [] : [];
+      const reviewersList = reviewersResponse && reviewersResponse.success ? (reviewersResponse.reviewers || []) : [];
       
       // Fetch uploaded files (these can also be used as reviewers)
-      const filesResponse = await getFiles(userId);
+      const filesResponse = await getFiles(userIdToUse);
       console.log('📁 Files response:', filesResponse);
-      const filesList = filesResponse.success ? filesResponse.files || [] : [];
+      const filesList = filesResponse && filesResponse.success ? (filesResponse.files || []) : [];
       
       console.log(`✅ Found ${reviewersList.length} reviewers and ${filesList.length} files`);
       
       // Combine reviewers and files
       const allReviewers = [
         // AI-generated reviewers (have reviewContent)
-        ...reviewersList.map(r => ({
-          id: r._id || r.id,
-          name: r.fileName,
-          subject: r.subject,
-          type: 'ai-generated',
-          reviewContent: r.reviewContent,
-          keyPoints: r.keyPoints || [],
-          createdAt: r.createdAt,
-          hasContent: true
-        })),
+        ...reviewersList.map(r => {
+          const reviewer = {
+            id: r._id || r.id,
+            name: r.fileName || r.name || 'Untitled Reviewer',
+            subject: r.subject || 'Uncategorized',
+            type: 'ai-generated',
+            reviewContent: r.reviewContent || r.content || '',
+            keyPoints: r.keyPoints || [],
+            createdAt: r.createdAt,
+            hasContent: !!(r.reviewContent || r.content) && (r.reviewContent || r.content).trim().length > 0
+          };
+          console.log('📝 Mapped reviewer:', reviewer.name, 'hasContent:', reviewer.hasContent);
+          return reviewer;
+        }),
         // Uploaded files (can be used as reviewers)
-        ...filesList.map(f => ({
-          id: f._id,
-          name: f.fileName,
-          subject: f.subject,
-          type: f.fileType,
-          content: f.fileContent,
-          createdAt: f.createdAt,
-          hasContent: !!f.fileContent && f.fileContent.length > 50
-        }))
+        ...filesList.map(f => {
+          const file = {
+            id: f._id || f.id,
+            name: f.fileName || f.name || 'Untitled File',
+            subject: f.subject || 'Uncategorized',
+            type: f.fileType || 'txt',
+            content: f.fileContent || f.content || '',
+            createdAt: f.createdAt,
+            hasContent: !!(f.fileContent || f.content) && (f.fileContent || f.content).trim().length > 50
+          };
+          console.log('📄 Mapped file:', file.name, 'hasContent:', file.hasContent);
+          return file;
+        })
       ];
       
       console.log(`📊 Total reviewers/files: ${allReviewers.length}`);
+      console.log('📋 All reviewers:', allReviewers.map(r => ({ name: r.name, subject: r.subject, hasContent: r.hasContent })));
       
-      // Group by subject
+      // Group by subject - include ALL reviewers, even without content
       const groupedBySubject = {};
       allReviewers.forEach(reviewer => {
-        if (!groupedBySubject[reviewer.subject]) {
-          groupedBySubject[reviewer.subject] = [];
+        const subject = reviewer.subject || 'Uncategorized';
+        if (!groupedBySubject[subject]) {
+          groupedBySubject[subject] = [];
         }
-        groupedBySubject[reviewer.subject].push(reviewer);
+        groupedBySubject[subject].push(reviewer);
       });
       
       console.log('📂 Grouped by subject:', Object.keys(groupedBySubject));
+      console.log('📂 Number of subjects:', Object.keys(groupedBySubject).length);
+      console.log('📂 Total items in grouped data:', Object.values(groupedBySubject).reduce((sum, arr) => sum + arr.length, 0));
       
+      // Set state with the grouped data
       setReviewers(groupedBySubject);
       setFiles(filesList);
+      
+      console.log('✅ State updated with reviewers:', Object.keys(groupedBySubject).length, 'subjects');
     } catch (error) {
       console.error('❌ Error fetching reviewers:', error);
       console.error('Error details:', error.message, error.stack);
@@ -657,18 +750,348 @@ const StudentStudyTimer = () => {
     return Math.min(100, Math.round((totalStudyTimeToday / goalSeconds) * 100));
   };
 
+  // Handle exit with confirmation
+  const handleExitReviewer = () => {
+    if (isRunning) {
+      setShowExitConfirm(true);
+    } else {
+      // Calculate progress to show in confirmation
+      const progressPercent = ((totalTimeForSession - timeRemaining) / totalTimeForSession) * 100;
+      if (progressPercent > 5) { // If more than 5% progress, ask for confirmation
+        setShowExitConfirm(true);
+      } else {
+        // Exit directly if minimal progress
+        setSelectedReviewer(null);
+        setHasEnteredFullScreenReviewer(false); // Reset full-screen mode flag
+        navigate(location.pathname, { replace: true, state: {} });
+      }
+    }
+  };
+
+  const confirmExit = () => {
+    setIsRunning(false);
+    setSelectedReviewer(null);
+    setHasEnteredFullScreenReviewer(false); // Reset full-screen mode flag
+    setShowExitConfirm(false);
+    navigate(location.pathname, { replace: true, state: {} });
+  };
+
+  const cancelExit = () => {
+    setShowExitConfirm(false);
+  };
+
+  // Paper color configurations
+  const paperColors = {
+    white: { bg: '#ffffff', text: '#000000', line: 'rgba(224, 224, 224, 0.5)' },
+    cream: { bg: '#fefcf8', text: '#2c2416', line: 'rgba(200, 180, 150, 0.4)' },
+    blue: { bg: '#f0f7ff', text: '#1a365d', line: 'rgba(147, 197, 253, 0.4)' },
+    green: { bg: '#f0fdf4', text: '#14532d', line: 'rgba(134, 239, 172, 0.4)' },
+    purple: { bg: '#faf5ff', text: '#581c87', line: 'rgba(196, 181, 253, 0.4)' }
+  };
+
+  // Draggable timer handlers
+  const handleTimerMouseDown = (e) => {
+    if (e.target.closest('button')) return; // Don't drag if clicking button
+    setIsDragging(true);
+    const rect = timerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setDragOffset({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      });
+    }
+  };
+
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMove = (e) => {
+      const newX = e.clientX - dragOffset.x;
+      const newY = e.clientY - dragOffset.y;
+      
+      if (timerRef.current) {
+        const maxX = window.innerWidth - timerRef.current.offsetWidth;
+        const maxY = window.innerHeight - timerRef.current.offsetHeight;
+        
+        setTimerPosition({
+          x: Math.max(0, Math.min(newX, maxX)),
+          y: Math.max(80, Math.min(newY, maxY))
+        });
+      }
+    };
+
+    const handleUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+  }, [isDragging, dragOffset]);
+
   return (
     <div>
+     {!showFullScreenReviewer ? (
      <Sidebar/>
+     ) : (
+       // Compact header only (no sidebar)
+       <div className='dashboard-container'>
+         <nav className="topnav" style={{ zIndex: 100 }}>
+           <div className="nav-left">
+             <div className="logo-nav" style={{ gap: '0.5rem' }}>
+               <img src="../imgs/SpireWorksLogo.png" alt="SpireWorks Logo" style={{ width: '32px', height: '32px' }} />
+               <h1 style={{ fontSize: '1.25rem' }}>SpireWorks</h1>
+             </div>
+           </div>
+           <div className="nav-right" style={{ gap: '0.75rem' }}>
+             <div className="nav-icon" onClick={() => {/* Handle notification */}} style={{ padding: '0.5rem' }}>
+               <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                 <path d="M10 5a5 5 0 0 1 5 5v2l1.5 3H3.5L5 12v-2a5 5 0 0 1 5-5z" stroke="currentColor" strokeWidth="1.5"/>
+                 <path d="M8 17a2 2 0 1 0 4 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+               </svg>
+             </div>
+             <div className="user-menu" style={{ padding: '0.25rem 0.5rem', gap: '0.5rem' }}>
+               <div className="user-avatar" style={{ width: '32px', height: '32px', fontSize: '0.75rem' }}>
+                 {userData?.firstName?.[0] || userData?.username?.[0] || 'U'}
+               </div>
+             </div>
+           </div>
+         </nav>
+       </div>
+     )}
 
       {/* Main Content */}
-      <main className="main-content">
+      <main className="main-content" style={{ position: 'relative' }}>
+        {/* Enhanced Draggable Timer (when reviewer is selected) */}
+        {showFullScreenReviewer && (() => {
+          const progressPercent = ((totalTimeForSession - timeRemaining) / totalTimeForSession) * 100;
+          const wordsRead = Math.floor((totalTimeForSession - timeRemaining) / 60 * 200); // Estimate 200 words/min
+          const focusScore = Math.min(100, Math.floor(progressPercent * 1.2)); // Focus score based on progress
+          
+          // Use saved position or default to upper right
+          const defaultTop = 80;
+          const defaultRight = 32;
+          const top = timerPosition.y !== null ? timerPosition.y : defaultTop;
+          const left = timerPosition.x !== null ? timerPosition.x : null;
+          const right = timerPosition.x !== null ? null : defaultRight;
+          
+          return (
+            <div 
+              ref={timerRef}
+              onMouseDown={handleTimerMouseDown}
+              style={{
+                position: 'fixed',
+                top: `${top}px`,
+                left: left !== null ? `${left}px` : undefined,
+                right: right !== null ? `${right}px` : undefined,
+                zIndex: 1000,
+                background: 'linear-gradient(135deg, rgba(15, 26, 46, 0.98) 0%, rgba(30, 58, 138, 0.98) 100%)',
+                backdropFilter: 'blur(15px)',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
+                borderRadius: '20px',
+                padding: '1.5rem',
+                minWidth: '240px',
+                boxShadow: '0 15px 40px rgba(0, 0, 0, 0.6)',
+                cursor: isDragging ? 'grabbing' : 'grab',
+                userSelect: 'none',
+                transition: isDragging ? 'none' : 'box-shadow 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!isDragging) {
+                  e.currentTarget.style.boxShadow = '0 20px 50px rgba(0, 0, 0, 0.7)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isDragging) {
+                  e.currentTarget.style.boxShadow = '0 15px 40px rgba(0, 0, 0, 0.6)';
+                }
+              }}
+            >
+              {/* Drag handle indicator */}
+              <div style={{
+                position: 'absolute',
+                top: '8px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                width: '40px',
+                height: '4px',
+                background: 'rgba(255, 255, 255, 0.3)',
+                borderRadius: '2px',
+                cursor: 'grab'
+              }}></div>
+              {/* Timer Display */}
+              <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+                <div style={{ 
+                  fontSize: '2.5rem', 
+                  fontWeight: '700', 
+                  background: 'linear-gradient(135deg, #3b82f6, #0ea5e9)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  marginBottom: '0.25rem',
+                  lineHeight: '1'
+                }}>
+                  {formatTime(timeRemaining)}
+                </div>
+                <div style={{ 
+                  fontSize: '0.75rem', 
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                  marginBottom: '0.5rem'
+                }}>
+                  {modeConfig[currentMode].label}
+                </div>
+                
+                {/* Progress Bar */}
+                <div style={{
+                  width: '100%',
+                  height: '6px',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '3px',
+                  overflow: 'hidden',
+                  marginBottom: '0.75rem'
+                }}>
+                  <div style={{
+                    width: `${progressPercent}%`,
+                    height: '100%',
+                    background: 'linear-gradient(90deg, #3b82f6, #0ea5e9)',
+                    borderRadius: '3px',
+                    transition: 'width 1s ease'
+                  }}></div>
+                </div>
+                
+                {/* Stats Grid */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '0.75rem',
+                  marginTop: '0.75rem'
+                }}>
+                  <div style={{
+                    background: 'rgba(59, 130, 246, 0.15)',
+                    borderRadius: '8px',
+                    padding: '0.5rem',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{
+                      fontSize: '0.7rem',
+                      color: 'rgba(255, 255, 255, 0.6)',
+                      marginBottom: '0.25rem'
+                    }}>Progress</div>
+                    <div style={{
+                      fontSize: '1rem',
+                      fontWeight: '600',
+                      color: '#3b82f6'
+                    }}>{Math.round(progressPercent)}%</div>
+                  </div>
+                  <div style={{
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    borderRadius: '8px',
+                    padding: '0.5rem',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{
+                      fontSize: '0.7rem',
+                      color: 'rgba(255, 255, 255, 0.6)',
+                      marginBottom: '0.25rem'
+                    }}>Focus</div>
+                    <div style={{
+                      fontSize: '1rem',
+                      fontWeight: '600',
+                      color: '#10b981'
+                    }}>{focusScore}%</div>
+                  </div>
+                </div>
+                
+                {isRunning && (
+                  <div style={{
+                    marginTop: '0.75rem',
+                    fontSize: '0.7rem',
+                    color: 'rgba(255, 255, 255, 0.5)',
+                    fontStyle: 'italic'
+                  }}>
+                    ~{wordsRead.toLocaleString()} words read
+                  </div>
+                )}
+              </div>
+              
+              {/* Control Button */}
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                {!isRunning ? (
+                  <button 
+                    onClick={startTimer}
+                    style={{
+                      background: 'linear-gradient(135deg, #3b82f6, #0ea5e9)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '10px',
+                      padding: '0.75rem 1.5rem',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem',
+                      fontWeight: '600',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      width: '100%',
+                      justifyContent: 'center',
+                      boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    Start
+                  </button>
+                ) : (
+                  <button 
+                    onClick={pauseTimer}
+                    style={{
+                      background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '10px',
+                      padding: '0.75rem 1.5rem',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem',
+                      fontWeight: '600',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      width: '100%',
+                      justifyContent: 'center',
+                      boxShadow: '0 4px 12px rgba(239, 68, 68, 0.4)',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="6" y="4" width="4" height="16"/>
+                      <rect x="14" y="4" width="4" height="16"/>
+                    </svg>
+                    Pause
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {!showFullScreenReviewer && (
         <div className="page-header">
           <div>
             <h1 className="page-title">Study Timer</h1>
             <p className="page-subtitle">Focus, track progress, and achieve your study goals</p>
           </div>
         </div>
+        )}
 
         {/* Reviewer Selection Card - Prominent at Top */}
         {currentMode === 'study' && (
@@ -689,7 +1112,7 @@ const StudentStudyTimer = () => {
                 </div>
                 <button 
                   className="reviewer-select-btn"
-                  onClick={() => setShowReviewerSelectionModal(true)}
+                  onClick={() => navigate('/my-files')}
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -714,7 +1137,7 @@ const StudentStudyTimer = () => {
                 </div>
                 <button 
                   className="reviewer-change-btn"
-                  onClick={() => setShowReviewerSelectionModal(true)}
+                  onClick={() => navigate('/my-files')}
                 >
                   Change
                 </button>
@@ -723,6 +1146,7 @@ const StudentStudyTimer = () => {
           </div>
         )}
 
+        {!showFullScreenReviewer && (
         <div className="timer-container">
           <div className="timer-main-card">
             {/* Mode Selector */}
@@ -878,7 +1302,7 @@ const StudentStudyTimer = () => {
             </div>
 
             {/* Reviewer Content Display (shown when reviewer is selected, even before starting) */}
-            {selectedReviewer && currentMode === 'study' && (
+            {selectedReviewer && currentMode === 'study' && !showFullScreenReviewer && (
               <div className="reviewer-content-display" style={{
                 marginTop: '2rem',
                 padding: '2rem',
@@ -923,10 +1347,7 @@ const StudentStudyTimer = () => {
                   </div>
                   {!isRunning && (
                     <button
-                      onClick={() => {
-                        setSelectedReviewer(null);
-                        setShowReviewerSelectionModal(true);
-                      }}
+                      onClick={() => navigate('/my-files')}
                       style={{
                         background: 'rgba(59, 130, 246, 0.1)',
                         border: '1px solid rgba(59, 130, 246, 0.3)',
@@ -1179,6 +1600,777 @@ const StudentStudyTimer = () => {
             </div>
           </div>
         </div>
+        )}
+
+        {/* Full-Screen Word-Inspired Reviewer View */}
+        {showFullScreenReviewer && (
+          <div style={{
+            position: 'fixed',
+            top: '80px', // Below header
+            left: 0, // No sidebar
+            right: 0,
+            bottom: 0,
+            background: '#f5f5f5',
+            zIndex: 50,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            {/* Word-like Toolbar - Redesigned */}
+            <div style={{
+              background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+              borderBottom: '1px solid #e0e0e0',
+              padding: '1rem 1.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1.25rem',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+              borderTopLeftRadius: '16px',
+              borderTopRightRadius: '16px'
+            }}>
+              {/* Document Name with Icon */}
+              <div style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                flex: 1,
+                minWidth: 0
+              }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)'
+                }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ 
+                    fontSize: '0.875rem',
+                    color: '#1f2937',
+                    fontWeight: '600',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {selectedReviewer.name || selectedReviewer.fileName}
+                  </div>
+                  <div style={{ 
+                    fontSize: '0.7rem', 
+                    color: '#6b7280',
+                    marginTop: '2px'
+                  }}>
+                    {selectedReviewer.subject}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Paper Style Selector - Redesigned */}
+              <div style={{
+                display: 'flex',
+                gap: '0.5rem',
+                alignItems: 'center',
+                padding: '0.5rem',
+                background: '#f1f5f9',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0'
+              }}>
+                <span style={{
+                  fontSize: '0.7rem',
+                  color: '#64748b',
+                  fontWeight: '600',
+                  marginRight: '0.25rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>
+                  Style
+                </span>
+                <button
+                  onClick={() => setPaperStyle('blank')}
+                  style={{
+                    background: paperStyle === 'blank' 
+                      ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' 
+                      : 'transparent',
+                    color: paperStyle === 'blank' ? 'white' : '#64748b',
+                    border: paperStyle === 'blank' ? 'none' : '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                    padding: '0.375rem 0.75rem',
+                    cursor: 'pointer',
+                    fontSize: '0.7rem',
+                    fontWeight: '600',
+                    transition: 'all 0.3s ease',
+                    boxShadow: paperStyle === 'blank' 
+                      ? '0 2px 8px rgba(59, 130, 246, 0.3)' 
+                      : 'none',
+                    transform: paperStyle === 'blank' ? 'scale(1.05)' : 'scale(1)'
+                  }}
+                  title="Blank Paper"
+                  onMouseEnter={(e) => {
+                    if (paperStyle !== 'blank') {
+                      e.currentTarget.style.background = '#e2e8f0';
+                      e.currentTarget.style.transform = 'scale(1.05)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (paperStyle !== 'blank') {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }
+                  }}
+                >
+                  Blank
+                </button>
+                <button
+                  onClick={() => setPaperStyle('lined')}
+                  style={{
+                    background: paperStyle === 'lined' 
+                      ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' 
+                      : 'transparent',
+                    color: paperStyle === 'lined' ? 'white' : '#64748b',
+                    border: paperStyle === 'lined' ? 'none' : '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                    padding: '0.375rem 0.75rem',
+                    cursor: 'pointer',
+                    fontSize: '0.7rem',
+                    fontWeight: '600',
+                    transition: 'all 0.3s ease',
+                    boxShadow: paperStyle === 'lined' 
+                      ? '0 2px 8px rgba(59, 130, 246, 0.3)' 
+                      : 'none',
+                    transform: paperStyle === 'lined' ? 'scale(1.05)' : 'scale(1)'
+                  }}
+                  title="Lined Paper"
+                  onMouseEnter={(e) => {
+                    if (paperStyle !== 'lined') {
+                      e.currentTarget.style.background = '#e2e8f0';
+                      e.currentTarget.style.transform = 'scale(1.05)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (paperStyle !== 'lined') {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }
+                  }}
+                >
+                  Lined
+                </button>
+                <button
+                  onClick={() => setPaperStyle('grid')}
+                  style={{
+                    background: paperStyle === 'grid' 
+                      ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' 
+                      : 'transparent',
+                    color: paperStyle === 'grid' ? 'white' : '#64748b',
+                    border: paperStyle === 'grid' ? 'none' : '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                    padding: '0.375rem 0.75rem',
+                    cursor: 'pointer',
+                    fontSize: '0.7rem',
+                    fontWeight: '600',
+                    transition: 'all 0.3s ease',
+                    boxShadow: paperStyle === 'grid' 
+                      ? '0 2px 8px rgba(59, 130, 246, 0.3)' 
+                      : 'none',
+                    transform: paperStyle === 'grid' ? 'scale(1.05)' : 'scale(1)'
+                  }}
+                  title="Grid Paper"
+                  onMouseEnter={(e) => {
+                    if (paperStyle !== 'grid') {
+                      e.currentTarget.style.background = '#e2e8f0';
+                      e.currentTarget.style.transform = 'scale(1.05)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (paperStyle !== 'grid') {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }
+                  }}
+                >
+                  Grid
+                </button>
+              </div>
+
+              {/* View Mode Toggle */}
+              <div style={{
+                display: 'flex',
+                gap: '0.5rem',
+                alignItems: 'center',
+                marginRight: '1rem',
+                padding: '0.25rem',
+                background: '#f5f5f5',
+                borderRadius: '8px'
+              }}>
+                <button
+                  onClick={() => setViewMode('document')}
+                  style={{
+                    background: viewMode === 'document' ? '#3b82f6' : 'transparent',
+                    color: viewMode === 'document' ? 'white' : '#666',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '0.375rem 0.75rem',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: '500',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.375rem'
+                  }}
+                  title="Document View (Word-like)"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                  Document
+                </button>
+                <button
+                  onClick={() => setViewMode('flashcards')}
+                  style={{
+                    background: viewMode === 'flashcards' ? '#3b82f6' : 'transparent',
+                    color: viewMode === 'flashcards' ? 'white' : '#666',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '0.375rem 0.75rem',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: '500',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.375rem'
+                  }}
+                  title="Flashcards View"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                    <line x1="8" y1="21" x2="16" y2="21"/>
+                    <line x1="12" y1="17" x2="12" y2="21"/>
+                  </svg>
+                  Flashcards
+                </button>
+              </div>
+
+              {/* Paper Color Selector - Circular Design */}
+              <div style={{
+                display: 'flex',
+                gap: '0.625rem',
+                alignItems: 'center',
+                padding: '0.5rem',
+                background: '#f1f5f9',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0'
+              }}>
+                <span style={{
+                  fontSize: '0.7rem',
+                  color: '#64748b',
+                  fontWeight: '600',
+                  marginRight: '0.25rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>
+                  Color
+                </span>
+                <button
+                  onClick={() => setPaperColor('white')}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    background: '#ffffff',
+                    border: paperColor === 'white' ? '3px solid #3b82f6' : '2px solid #cbd5e1',
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    boxShadow: paperColor === 'white' 
+                      ? '0 0 0 3px rgba(59, 130, 246, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1)' 
+                      : '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    transform: paperColor === 'white' ? 'scale(1.1)' : 'scale(1)'
+                  }}
+                  title="White Paper"
+                  onMouseEnter={(e) => {
+                    if (paperColor !== 'white') {
+                      e.currentTarget.style.transform = 'scale(1.15)';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (paperColor !== 'white') {
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => setPaperColor('cream')}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    background: '#fefcf8',
+                    border: paperColor === 'cream' ? '3px solid #3b82f6' : '2px solid #cbd5e1',
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    boxShadow: paperColor === 'cream' 
+                      ? '0 0 0 3px rgba(59, 130, 246, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1)' 
+                      : '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    transform: paperColor === 'cream' ? 'scale(1.1)' : 'scale(1)'
+                  }}
+                  title="Cream Paper"
+                  onMouseEnter={(e) => {
+                    if (paperColor !== 'cream') {
+                      e.currentTarget.style.transform = 'scale(1.15)';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (paperColor !== 'cream') {
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => setPaperColor('blue')}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    background: '#f0f7ff',
+                    border: paperColor === 'blue' ? '3px solid #3b82f6' : '2px solid #cbd5e1',
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    boxShadow: paperColor === 'blue' 
+                      ? '0 0 0 3px rgba(59, 130, 246, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1)' 
+                      : '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    transform: paperColor === 'blue' ? 'scale(1.1)' : 'scale(1)'
+                  }}
+                  title="Blue Paper"
+                  onMouseEnter={(e) => {
+                    if (paperColor !== 'blue') {
+                      e.currentTarget.style.transform = 'scale(1.15)';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (paperColor !== 'blue') {
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => setPaperColor('green')}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    background: '#f0fdf4',
+                    border: paperColor === 'green' ? '3px solid #3b82f6' : '2px solid #cbd5e1',
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    boxShadow: paperColor === 'green' 
+                      ? '0 0 0 3px rgba(59, 130, 246, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1)' 
+                      : '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    transform: paperColor === 'green' ? 'scale(1.1)' : 'scale(1)'
+                  }}
+                  title="Green Paper"
+                  onMouseEnter={(e) => {
+                    if (paperColor !== 'green') {
+                      e.currentTarget.style.transform = 'scale(1.15)';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (paperColor !== 'green') {
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => setPaperColor('purple')}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    background: '#faf5ff',
+                    border: paperColor === 'purple' ? '3px solid #3b82f6' : '2px solid #cbd5e1',
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    boxShadow: paperColor === 'purple' 
+                      ? '0 0 0 3px rgba(59, 130, 246, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1)' 
+                      : '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    transform: paperColor === 'purple' ? 'scale(1.1)' : 'scale(1)'
+                  }}
+                  title="Purple Paper"
+                  onMouseEnter={(e) => {
+                    if (paperColor !== 'purple') {
+                      e.currentTarget.style.transform = 'scale(1.15)';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (paperColor !== 'purple') {
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                    }
+                  }}
+                />
+              </div>
+              
+              {/* Exit Button - Redesigned */}
+              <button
+                onClick={handleExitReviewer}
+                style={{
+                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  border: 'none',
+                  borderRadius: '10px',
+                  padding: '0.5rem 1rem',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  color: 'white',
+                  fontWeight: '600',
+                  transition: 'all 0.3s ease',
+                  boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'scale(1.05)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(239, 68, 68, 0.3)';
+                }}
+                title="Exit reviewer"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                  <polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+                Exit
+              </button>
+            </div>
+
+            {/* Word-like Document Area */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              background: '#f5f5f5',
+              padding: '3rem',
+              paddingLeft: '3rem', // No left padding since no sidebar
+              display: 'flex',
+              justifyContent: 'center', // Center the paper
+              position: 'relative',
+              minHeight: '100%' // Ensure container extends
+            }}>
+              {viewMode === 'document' ? (
+                <div style={{
+                  background: paperColors[paperColor].bg,
+                  width: '100%',
+                  maxWidth: '816px', // A4 width at 96 DPI
+                  minHeight: 'calc(100vh + 500px)', // Extend beyond viewport for scrolling
+                  padding: '96px 96px 500px 80px', // Extra padding at bottom for scrolling
+                  boxShadow: '0 0 10px rgba(0, 0, 0, 0.1)',
+                  fontFamily: 'Calibri, "Segoe UI", Arial, sans-serif',
+                  fontSize: '11pt',
+                  lineHeight: '1.5',
+                  color: paperColors[paperColor].text,
+                  position: 'relative',
+                  filter: !isRunning && totalTimeForSession > 0 ? 'blur(4px)' : 'none',
+                  transition: 'filter 0.3s ease',
+                  // Paper style backgrounds - ensure they repeat and extend fully
+                  ...(paperStyle === 'lined' ? {
+                    background: paperColors[paperColor].bg,
+                    backgroundImage: `repeating-linear-gradient(
+                      transparent,
+                      transparent 31px,
+                      ${paperColors[paperColor].line} 31px,
+                      ${paperColors[paperColor].line} 32px
+                    )`,
+                    backgroundPosition: '80px 96px',
+                    backgroundSize: 'calc(100% - 160px) 32px',
+                    backgroundRepeat: 'repeat-y',
+                    backgroundAttachment: 'local' // Ensures background scrolls with content
+                  } : paperStyle === 'grid' ? {
+                    background: paperColors[paperColor].bg,
+                    backgroundImage: `
+                      linear-gradient(to right, ${paperColors[paperColor].line} 1px, transparent 1px),
+                      linear-gradient(to bottom, ${paperColors[paperColor].line} 1px, transparent 1px)
+                    `,
+                    backgroundSize: '20px 20px',
+                    backgroundPosition: '80px 96px',
+                    backgroundRepeat: 'repeat',
+                    backgroundAttachment: 'local' // Ensures background scrolls with content
+                  } : {
+                    background: paperColors[paperColor].bg
+                  })
+                }}>
+                {/* Document Title */}
+                <h1 style={{
+                  fontSize: '18pt',
+                  fontWeight: 'bold',
+                  marginBottom: '12pt',
+                  color: paperColors[paperColor].text,
+                  textAlign: 'left'
+                }}>
+                  {selectedReviewer.name || selectedReviewer.fileName}
+                </h1>
+
+                {/* Study Notes Content */}
+                {(selectedReviewer.reviewContent || selectedReviewer.content) && (
+                  <div style={{
+                    marginBottom: '24pt',
+                    whiteSpace: 'pre-wrap',
+                    wordWrap: 'break-word'
+                  }}>
+                    {selectedReviewer.reviewContent 
+                      ? cleanContent(selectedReviewer.reviewContent)
+                      : selectedReviewer.content 
+                        ? cleanContent(selectedReviewer.content)
+                        : 'No content available'}
+                  </div>
+                )}
+
+                {/* Key Points Section */}
+                {selectedReviewer.keyPoints && selectedReviewer.keyPoints.length > 0 && (
+                  <div style={{
+                    marginTop: '24pt',
+                    paddingTop: '24pt',
+                    borderTop: '1px solid #e0e0e0'
+                  }}>
+                    <h2 style={{
+                      fontSize: '14pt',
+                      fontWeight: 'bold',
+                      marginBottom: '12pt',
+                      color: paperColors[paperColor].text
+                    }}>
+                      Key Points
+                    </h2>
+                    <ul style={{
+                      listStyle: 'disc',
+                      paddingLeft: '36pt',
+                      margin: 0
+                    }}>
+                      {selectedReviewer.keyPoints.map((point, idx) => (
+                        <li key={idx} style={{
+                          marginBottom: '6pt',
+                          color: paperColors[paperColor].text,
+                          lineHeight: '1.5'
+                        }}>
+                          {point}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                </div>
+              ) : (
+                // Flashcards View - Single Large Card with Navigation
+                (() => {
+                  // Prepare flashcards data
+                  let flashcards = [];
+                  if (selectedReviewer.keyPoints && selectedReviewer.keyPoints.length > 0) {
+                    flashcards = selectedReviewer.keyPoints.map((point, idx) => ({
+                      type: 'keypoint',
+                      number: idx + 1,
+                      content: point
+                    }));
+                  } else {
+                    const content = selectedReviewer.reviewContent || selectedReviewer.content || '';
+                    const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 20);
+                    flashcards = sentences.slice(0, 20).map((chunk, idx) => ({
+                      type: 'note',
+                      number: idx + 1,
+                      content: chunk.trim()
+                    }));
+                  }
+
+                  if (flashcards.length === 0) {
+                    return (
+                      <div style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '4rem',
+                        color: paperColors[paperColor].text
+                      }}>
+                        <div style={{ textAlign: 'center' }}>
+                          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ margin: '0 auto 1rem', opacity: 0.5 }}>
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                            <line x1="8" y1="21" x2="16" y2="21"/>
+                            <line x1="12" y1="17" x2="12" y2="21"/>
+                          </svg>
+                          <p style={{ fontSize: '1.1rem', fontWeight: '500' }}>No content available for flashcards</p>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const currentCard = flashcards[flashcardIndex];
+                  const canGoPrev = flashcardIndex > 0;
+                  const canGoNext = flashcardIndex < flashcards.length - 1;
+
+                  return (
+                    <div style={{
+                      width: '100%',
+                      maxWidth: '900px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '2rem',
+                      padding: '2rem 0',
+                      filter: !isRunning && totalTimeForSession > 0 ? 'blur(4px)' : 'none',
+                      transition: 'filter 0.3s ease',
+                      position: 'relative'
+                    }}>
+                      {/* Previous Arrow */}
+                      <button
+                        onClick={() => setFlashcardIndex(prev => Math.max(0, prev - 1))}
+                        disabled={!canGoPrev}
+                        style={{
+                          width: '56px',
+                          height: '56px',
+                          borderRadius: '50%',
+                          background: canGoPrev ? 'rgba(59, 130, 246, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                          border: canGoPrev ? '2px solid #3b82f6' : '2px solid transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: canGoPrev ? 'pointer' : 'not-allowed',
+                          transition: 'all 0.3s ease',
+                          opacity: canGoPrev ? 1 : 0.4,
+                          flexShrink: 0
+                        }}
+                        onMouseEnter={(e) => {
+                          if (canGoPrev) {
+                            e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)';
+                            e.currentTarget.style.transform = 'scale(1.1)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (canGoPrev) {
+                            e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)';
+                            e.currentTarget.style.transform = 'scale(1)';
+                          }
+                        }}
+                      >
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={canGoPrev ? '#3b82f6' : '#999'} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="15 18 9 12 15 6"/>
+                        </svg>
+                      </button>
+
+                      {/* Large Flashcard */}
+                      <div style={{
+                        flex: 1,
+                        background: paperColors[paperColor].bg,
+                        border: `3px solid ${paperColors[paperColor].line}`,
+                        borderRadius: '24px',
+                        padding: '4rem 3rem',
+                        minHeight: '500px',
+                        maxHeight: '600px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
+                        transition: 'all 0.3s ease',
+                        position: 'relative'
+                      }}>
+                        {/* Card Number Indicator */}
+                        <div style={{
+                          position: 'absolute',
+                          top: '1.5rem',
+                          right: '1.5rem',
+                          fontSize: '0.875rem',
+                          fontWeight: '600',
+                          color: '#3b82f6',
+                          background: 'rgba(59, 130, 246, 0.1)',
+                          padding: '0.5rem 1rem',
+                          borderRadius: '20px'
+                        }}>
+                          {flashcardIndex + 1} / {flashcards.length}
+                        </div>
+
+                        {/* Card Type Label */}
+                        <div style={{
+                          fontSize: '0.875rem',
+                          fontWeight: '600',
+                          color: '#3b82f6',
+                          marginBottom: '2rem',
+                          textTransform: 'uppercase',
+                          letterSpacing: '2px'
+                        }}>
+                          {currentCard.type === 'keypoint' ? 'Key Point' : 'Study Note'} {currentCard.number}
+                        </div>
+
+                        {/* Card Content */}
+                        <div style={{
+                          fontSize: '1.5rem',
+                          color: paperColors[paperColor].text,
+                          lineHeight: '1.8',
+                          fontWeight: '500',
+                          textAlign: 'center',
+                          wordWrap: 'break-word'
+                        }}>
+                          {currentCard.content}
+                        </div>
+                      </div>
+
+                      {/* Next Arrow */}
+                      <button
+                        onClick={() => setFlashcardIndex(prev => Math.min(flashcards.length - 1, prev + 1))}
+                        disabled={!canGoNext}
+                        style={{
+                          width: '56px',
+                          height: '56px',
+                          borderRadius: '50%',
+                          background: canGoNext ? 'rgba(59, 130, 246, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                          border: canGoNext ? '2px solid #3b82f6' : '2px solid transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: canGoNext ? 'pointer' : 'not-allowed',
+                          transition: 'all 0.3s ease',
+                          opacity: canGoNext ? 1 : 0.4,
+                          flexShrink: 0
+                        }}
+                        onMouseEnter={(e) => {
+                          if (canGoNext) {
+                            e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)';
+                            e.currentTarget.style.transform = 'scale(1.1)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (canGoNext) {
+                            e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)';
+                            e.currentTarget.style.transform = 'scale(1)';
+                          }
+                        }}
+                      >
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={canGoNext ? '#3b82f6' : '#999'} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 18 15 12 9 6"/>
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Reviewer Selection Modal */}
@@ -1189,7 +2381,10 @@ const StudentStudyTimer = () => {
               <h2>Select Reviewer for Study Session</h2>
               <div className="modal-header-actions">
                 <button
-                  onClick={fetchReviewersAndFiles}
+                  onClick={() => {
+                    const effectiveUserId = userId || 'demo-user';
+                    fetchReviewersAndFiles(effectiveUserId);
+                  }}
                   disabled={isLoadingReviewers}
                   style={{
                     background: 'rgba(59, 130, 246, 0.1)',
@@ -1345,6 +2540,300 @@ const StudentStudyTimer = () => {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Exit Confirmation Modal */}
+      {showExitConfirm && (
+        <div className="modal-overlay" onClick={cancelExit} style={{ zIndex: 10001 }}>
+          <div 
+            className="notification-modal" 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'linear-gradient(135deg, #111f3a 0%, #0f1a2e 100%)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '16px',
+              padding: '2rem',
+              maxWidth: '450px',
+              width: '90%',
+              textAlign: 'center',
+              animation: 'slideUp 0.3s ease',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)'
+            }}
+          >
+            <div style={{
+              width: '64px',
+              height: '64px',
+              margin: '0 auto 1.5rem',
+              borderRadius: '50%',
+              background: 'rgba(239, 68, 68, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
+              </svg>
+            </div>
+            <h3 style={{
+              fontSize: '1.25rem',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '0.75rem'
+            }}>
+              Exit Study Session?
+            </h3>
+            <div style={{
+              fontSize: '1rem',
+              color: 'var(--text-secondary)',
+              marginBottom: '1.5rem',
+              lineHeight: '1.6',
+              whiteSpace: 'pre-line',
+              textAlign: 'left',
+              padding: '0.5rem'
+            }}>
+              {(() => {
+                const progressPercent = ((totalTimeForSession - timeRemaining) / totalTimeForSession) * 100;
+                const timeStudied = Math.floor((totalTimeForSession - timeRemaining) / 60);
+                return `Are you sure you want to exit?\n\n` +
+                  `You've studied for ${timeStudied} minute${timeStudied !== 1 ? 's' : ''} (${Math.round(progressPercent)}% progress).\n\n` +
+                  `⚠️ Your progress will be saved, but the current session will end.\n\n` +
+                  `Don't waste your progress! Continue studying?`;
+              })()}
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', width: '100%' }}>
+              <button
+                onClick={cancelExit}
+                style={{
+                  flex: 1,
+                  padding: '0.75rem 2rem',
+                  background: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  fontSize: '1rem',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-input)'}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmExit}
+                style={{
+                  flex: 1,
+                  padding: '0.75rem 2rem',
+                  background: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '1rem',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+              >
+                Exit Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {showConfirmationModal && (
+        <div className="modal-overlay" onClick={handleConfirmationCancel} style={{ zIndex: 10000 }}>
+          <div 
+            className="notification-modal" 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'linear-gradient(135deg, #111f3a 0%, #0f1a2e 100%)',
+              border: '1px solid rgba(59, 130, 246, 0.3)',
+              borderRadius: '16px',
+              padding: '2rem',
+              maxWidth: '400px',
+              width: '90%',
+              textAlign: 'center',
+              animation: 'slideUp 0.3s ease',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)'
+            }}
+          >
+            <div style={{
+              width: '64px',
+              height: '64px',
+              margin: '0 auto 1.5rem',
+              borderRadius: '50%',
+              background: 'rgba(59, 130, 246, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+            </div>
+            <h3 style={{
+              fontSize: '1.25rem',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '0.75rem'
+            }}>
+              Confirm Action
+            </h3>
+            <div style={{
+              fontSize: '1rem',
+              color: 'var(--text-secondary)',
+              marginBottom: '1.5rem',
+              lineHeight: '1.6',
+              whiteSpace: 'pre-line',
+              textAlign: 'left',
+              padding: '0.5rem'
+            }}>
+              {confirmationMessage.split('\n').map((line, index) => (
+                <div key={index} style={{ marginBottom: line.trim() === '' ? '0.5rem' : '0.25rem' }}>
+                  {line || '\u00A0'}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', width: '100%' }}>
+              <button
+                onClick={handleConfirmationCancel}
+                style={{
+                  flex: 1,
+                  padding: '0.75rem 2rem',
+                  background: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  fontSize: '1rem',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-input)'}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmationConfirm}
+                style={{
+                  flex: 1,
+                  padding: '0.75rem 2rem',
+                  background: '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '1rem',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notification Modal */}
+      {showNotification && (
+        <div className="modal-overlay" onClick={() => setShowNotification(false)} style={{ zIndex: 10000 }}>
+          <div 
+            className="notification-modal" 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'linear-gradient(135deg, #111f3a 0%, #0f1a2e 100%)',
+              border: `1px solid ${notificationType === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+              borderRadius: '16px',
+              padding: '2rem',
+              maxWidth: '400px',
+              width: '90%',
+              textAlign: 'center',
+              animation: 'slideUp 0.3s ease',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)'
+            }}
+          >
+            <div style={{
+              width: '64px',
+              height: '64px',
+              margin: '0 auto 1.5rem',
+              borderRadius: '50%',
+              background: notificationType === 'success' 
+                ? 'rgba(16, 185, 129, 0.1)' 
+                : 'rgba(239, 68, 68, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              {notificationType === 'success' ? (
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6L9 17l-5-5"/>
+                </svg>
+              ) : (
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              )}
+            </div>
+            <h3 style={{
+              fontSize: '1.25rem',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '0.75rem'
+            }}>
+              {notificationType === 'success' ? 'Success!' : 'Notice'}
+            </h3>
+            <div style={{
+              fontSize: '1rem',
+              color: 'var(--text-secondary)',
+              marginBottom: '1.5rem',
+              lineHeight: '1.6',
+              whiteSpace: 'pre-line',
+              textAlign: 'left',
+              maxHeight: '300px',
+              overflowY: 'auto',
+              padding: '0.5rem'
+            }}>
+              {notificationMessage.split('\n').map((line, index) => (
+                <div key={index} style={{ marginBottom: line.trim() === '' ? '0.5rem' : '0.25rem' }}>
+                  {line || '\u00A0'}
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowNotification(false)}
+              style={{
+                padding: '0.75rem 2rem',
+                background: notificationType === 'success' ? '#10b981' : '#ef4444',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '1rem',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                width: '100%'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+            >
+              OK
+            </button>
           </div>
         </div>
       )}

@@ -4,7 +4,7 @@ import '../../styles/StudentDashboard.css';
 import { useState, useEffect } from "react";
 import { getNotifications, markNotificationAsRead } from '../../services/apiService';
 
-const Sidebar = () => {
+const Sidebar = ({ collapsed = false }) => {
     const location = useLocation();
     const navigate = useNavigate();
     
@@ -202,7 +202,35 @@ const Sidebar = () => {
             {unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}
           </div>
           <div className="user-menu" onClick={() => setUserDropdownActive(!userDropdownActive)}>
-            <div className="user-avatar">{getAvatarInitials()}</div>
+            {userData?.avatar ? (
+              <div className="user-avatar" style={{ 
+                background: 'transparent',
+                overflow: 'hidden',
+                padding: 0
+              }}>
+                <img 
+                  src={`/imgs/${userData.avatar}`} 
+                  alt="Profile"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover'
+                  }}
+                  onError={(e) => {
+                    // Fallback to initials if image fails
+                    e.target.style.display = 'none';
+                    const parent = e.target.parentElement;
+                    parent.textContent = getAvatarInitials();
+                    parent.style.background = 'var(--gradient-1)';
+                    parent.style.display = 'flex';
+                    parent.style.alignItems = 'center';
+                    parent.style.justifyContent = 'center';
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="user-avatar">{getAvatarInitials()}</div>
+            )}
             <div className="user-info">
               <div className="user-name">{userName}</div>
               <div className="user-role">{userRole}</div>
@@ -214,7 +242,7 @@ const Sidebar = () => {
 
           {/* User Dropdown */}
           <div className={`user-dropdown ${userDropdownActive ? 'active' : ''}`}>
-            <a href="#" className="dropdown-item">
+            <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); setUserDropdownActive(false); navigate('/profile'); }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                 <circle cx="12" cy="7" r="4"></circle>
@@ -325,7 +353,7 @@ const Sidebar = () => {
       )}
 
       {/* Sidebar */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
         <Link to="/student-dashboard" className={`menu-item ${isActive('/student-dashboard') ? 'active' : ''}`}>
           <span className="menu-icon">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">

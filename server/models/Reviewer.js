@@ -29,14 +29,13 @@ const questionSchema = new mongoose.Schema({
 
 const reviewerSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String
     required: true
   },
   fileId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'File',
-    required: true
+    required: false // Make optional since it might not always be provided
   },
   fileName: {
     type: String,

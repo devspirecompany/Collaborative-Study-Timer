@@ -1,5 +1,30 @@
 // API Service for backend communication
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+// Validate environment variable
+const validateApiUrl = () => {
+  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  
+  // Check if URL is valid
+  try {
+    new URL(apiUrl);
+  } catch (error) {
+    console.error('❌ Invalid REACT_APP_API_URL:', apiUrl);
+    console.error('   Please set a valid URL in your .env file: REACT_APP_API_URL=http://localhost:5000/api');
+    return 'http://localhost:5000/api'; // Fallback to default
+  }
+  
+  // Log in development mode
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔗 API Base URL:', apiUrl);
+    if (!process.env.REACT_APP_API_URL) {
+      // Using default API URL - no warning needed
+    }
+  }
+  
+  return apiUrl;
+};
+
+const API_BASE_URL = validateApiUrl();
 
 // Helper function for API calls
 const apiCall = async (endpoint, options = {}) => {

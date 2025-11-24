@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from './shared/sidebar.jsx';
 import TutorialModal from './shared/TutorialModal.jsx';
-import { getFiles, createFile, getFolders, createFolder, deleteFolder, deleteFile } from '../services/apiService';
+import { getFiles, createFile, getFolders, createFolder, deleteFolder, deleteFile, getReviewers } from '../services/apiService';
+import { createReviewerFromFile } from '../services/aiService';
 import '../styles/MyFiles.css';
 import { tutorials, hasSeenTutorial, markTutorialAsSeen } from '../utils/tutorials';
 
@@ -21,10 +22,15 @@ const MyFiles = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [folders, setFolders] = useState([]);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [deletingFileId, setDeletingFileId] = useState(null);
+  const [generatingReviewerId, setGeneratingReviewerId] = useState(null);
+  const [reviewers, setReviewers] = useState([]);
+  const [loadingReviewers, setLoadingReviewers] = useState(false);
 
   useEffect(() => {
     fetchFolders();
     fetchFiles();
+    fetchReviewers();
   }, []);
 
   // Show tutorial immediately when feature is accessed
@@ -57,6 +63,27 @@ const MyFiles = () => {
     } catch (error) {
       console.error('Error fetching folders:', error);
       // Don't block UI if folders can't be fetched
+    }
+  };
+
+  const fetchReviewers = async () => {
+    try {
+      setLoadingReviewers(true);
+      console.log('📚 Fetching reviewers for userId:', userId);
+      const response = await getReviewers(userId);
+      console.log('📚 Reviewers response:', response);
+      if (response && response.success && response.reviewers) {
+        console.log('✅ Found reviewers:', response.reviewers.length);
+        setReviewers(response.reviewers);
+      } else {
+        console.log('⚠️ No reviewers found or invalid response');
+        setReviewers([]);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching reviewers:', error);
+      setReviewers([]);
+    } finally {
+      setLoadingReviewers(false);
     }
   };
 
@@ -353,6 +380,94 @@ const MyFiles = () => {
     }
   };
 
+  const handleGenerateReviewer = async (file) => {
+    if (!file) {
+      alert('Error: No file selected.');
+      return;
+    }
+
+    if (!file.subject) {
+      alert('Error: File subject is missing. Cannot generate reviewer.');
+      return;
+    }
+
+    // Prevent double-clicks
+    if (generatingReviewerId === file.id) {
+      console.log('Reviewer generation already in progress for file:', file.id);
+      return;
+    }
+
+    // Confirmation
+    const confirmGenerate = window.confirm(
+      `Generate AI Reviewer for "${file.name}"?\n\n` +
+      `This will create study notes and practice questions from your file.\n` +
+      `It may take a few moments...`
+    );
+    if (!confirmGenerate) {
+      return;
+    }
+
+    // Set loading state
+    setGeneratingReviewerId(file.id);
+
+    try {
+      let fileContent = file.content;
+      
+      // If content is missing, fetch it from backend
+      if (!fileContent) {
+        console.log('📥 File content not in cache, fetching from backend...');
+        try {
+          const response = await getFiles(userId, file.subject);
+          if (response.success && response.files) {
+            const fullFile = response.files.find(f => f._id === file.id || f._id?.toString() === file.id?.toString());
+            if (fullFile && fullFile.fileContent) {
+              fileContent = fullFile.fileContent;
+              console.log(`✅ Fetched file content: ${fileContent.length} characters`);
+            }
+          }
+        } catch (fetchError) {
+          console.error('Error fetching file content:', fetchError);
+        }
+      }
+
+      if (!fileContent) {
+        throw new Error('File content is not available. Please ensure the file was uploaded correctly.');
+      }
+
+      console.log('🤖 Generating reviewer for file:', {
+        id: file.id,
+        name: file.name,
+        subject: file.subject,
+        contentLength: fileContent.length
+      });
+
+      // Call API to generate reviewer
+      const reviewer = await createReviewerFromFile(
+        file.name,
+        fileContent,
+        file.subject,
+        userId,
+        file.id
+      );
+
+      console.log('✅ Reviewer generated:', reviewer);
+
+      if (reviewer) {
+        console.log('✅ Reviewer generated successfully:', reviewer);
+        // Refresh from backend to get the saved reviewer with proper ID
+        await fetchReviewers();
+        alert(`✅ Reviewer generated successfully!\n\n"${reviewer.fileName || reviewer.fileName || 'Reviewer'}" reviewer is now available below.`);
+      } else {
+        throw new Error('Reviewer generation returned null');
+      }
+    } catch (error) {
+      console.error('❌ Error generating reviewer:', error);
+      alert(`Failed to generate reviewer: ${error.message || 'Unknown error'}\n\nPlease try again.`);
+    } finally {
+      setGeneratingReviewerId(null);
+    }
+  };
+
   const handleDeleteFile = async (file) => {
     if (!window.confirm(`Delete file "${file.name}"? This action cannot be undone.`)) {
       return;
@@ -522,8 +637,9 @@ const MyFiles = () => {
                           <span className="file-date">{file.uploaded}</span>
                         </div>
                       </div>
-                      <div className="file-actions">
+                      <div className="file-actions" style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column', position: 'relative', zIndex: 10 }}>
                         <button
+<<<<<<< Updated upstream
                           className="btn-download"
                           onClick={() => alert(`Downloading ${file.name}...`)}
                           title="Download file"
@@ -535,14 +651,94 @@ const MyFiles = () => {
                           </svg>
                         </button>
                         <button
-                          className="btn-delete-file"
-                          onClick={() => handleDeleteFile(file)}
-                          title="Delete file"
+                          className="btn-generate-reviewer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleGenerateReviewer(file);
+                          }}
+                          disabled={generatingReviewerId === file.id}
+                          title="Generate AI Reviewer - Create study notes and practice questions"
+                          style={{
+                            background: 'var(--primary)',
+                            color: 'white',
+                            border: 'none',
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: '6px',
+                            cursor: generatingReviewerId === file.id ? 'not-allowed' : 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: '500',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.4rem',
+                            opacity: generatingReviewerId === file.id ? 0.6 : 1,
+                            transition: 'all 0.2s',
+                            position: 'relative',
+                            zIndex: 20,
+                            pointerEvents: generatingReviewerId === file.id ? 'none' : 'auto'
+                          }}
                         >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                          </svg>
+                          {generatingReviewerId === file.id ? (
+                            <>
+                              <svg className="spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}>
+                                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                              </svg>
+                              <span>Generating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 2L2 7L12 12L22 7L12 2Z"/>
+                                <path d="M2 17L12 22L22 17"/>
+                                <path d="M2 12L12 17L22 12"/>
+                              </svg>
+                              <span>Generate Reviewer</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          className="btn-delete-file"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteFile(file);
+                          }}
+                          disabled={deletingFileId === file.id}
+                          title="Delete file"
+                          style={{
+                            background: 'transparent',
+                            color: 'var(--text-secondary)',
+                            border: '1px solid var(--border-color)',
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: '6px',
+                            cursor: deletingFileId === file.id ? 'not-allowed' : 'pointer',
+                            fontSize: '0.85rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.4rem',
+                            opacity: deletingFileId === file.id ? 0.6 : 1,
+                            position: 'relative',
+                            zIndex: 20,
+                            pointerEvents: deletingFileId === file.id ? 'none' : 'auto'
+                          }}
+                        >
+                          {deletingFileId === file.id ? (
+                            <>
+                              <svg className="spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}>
+                                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                              </svg>
+                              <span>Deleting...</span>
+                            </>
+                          ) : (
+                            <>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                              </svg>
+                              <span>Delete</span>
+                            </>
+                          )}
+                        </button>
                         </button>
                       </div>
                     </div>
@@ -551,6 +747,97 @@ const MyFiles = () => {
               </>
             )}
           </div>
+        </div>
+
+        {/* Reviewers Section - Below Files Container */}
+        <div className="reviewers-section" style={{ 
+          marginTop: '3rem', 
+          paddingTop: '2rem', 
+          borderTop: '2px solid var(--border)',
+          width: '100%',
+          maxWidth: '100%',
+          clear: 'both'
+        }}>
+          <div className="files-header" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: '600', color: 'var(--text-primary)', margin: 0 }}>
+              AI Generated Reviewers
+            </h2>
+            <span className="files-count" style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
+              {reviewers.length} {reviewers.length === 1 ? 'reviewer' : 'reviewers'}
+            </span>
+          </div>
+
+          {loadingReviewers ? (
+            <div className="loading-state">
+              <div className="spinner"></div>
+              <p>Loading reviewers...</p>
+            </div>
+          ) : reviewers.length === 0 ? (
+            <div className="empty-state">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z"/>
+                <path d="M2 17L12 22L22 17"/>
+                <path d="M2 12L12 17L22 12"/>
+              </svg>
+              <h3>No reviewers yet</h3>
+              <p>Click "Generate Reviewer" on any file to create AI-generated study notes and practice questions</p>
+            </div>
+          ) : (
+            <div className="reviewers-grid">
+              {reviewers.map((reviewer) => (
+                <div key={reviewer.id || reviewer._id} className="reviewer-card">
+                  <div className="reviewer-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 2L2 7L12 12L22 7L12 2Z"/>
+                      <path d="M2 17L12 22L22 17"/>
+                      <path d="M2 12L12 17L22 12"/>
+                    </svg>
+                  </div>
+                  <div className="reviewer-info">
+                    <h3>{reviewer.fileName || 'Untitled Reviewer'}</h3>
+                    <div className="reviewer-subject">{reviewer.subject || 'No subject'}</div>
+                    <div className="reviewer-questions">
+                      {reviewer.totalQuestions || reviewer.questions?.length || 0} practice questions
+                    </div>
+                    {reviewer.keyPoints && reviewer.keyPoints.length > 0 && (
+                      <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        {reviewer.keyPoints.length} key points
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className="btn-start-reviewer"
+                    onClick={() => {
+                      navigate('/study-timer', {
+                        state: {
+                          selectedReviewer: {
+                            id: reviewer.id || reviewer._id,
+                            _id: reviewer._id || reviewer.id,
+                            name: reviewer.fileName,
+                            fileName: reviewer.fileName,
+                            subject: reviewer.subject,
+                            reviewContent: reviewer.reviewContent,
+                            keyPoints: reviewer.keyPoints,
+                            questions: reviewer.questions,
+                            totalQuestions: reviewer.totalQuestions,
+                            type: 'ai-generated',
+                            hasContent: true
+                          },
+                          fromMyFiles: true,
+                          autoStart: false // Don't auto-start, let user start manually
+                        }
+                      });
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    Start Studying
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
 

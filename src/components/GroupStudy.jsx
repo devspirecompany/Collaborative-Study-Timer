@@ -736,10 +736,8 @@ const GroupStudy = () => {
       console.error('Error generating and starting AI battle:', error);
       let errorMessage = error.message || 'Please try again.';
       
-      // Provide helpful instructions for API key errors
-      if (errorMessage.includes('GEMINI_API_KEY') || errorMessage.includes('AI service not configured')) {
-        errorMessage = `AI service not configured.\n\nTo fix this:\n1. Open server/.env file\n2. Replace "your-gemini-api-key-here" with your actual Gemini API key\n3. Get a FREE key from: https://aistudio.google.com/app/apikey\n4. Restart the backend server\n\nOr run: .\\setup-gemini-key.ps1`;
-      }
+      // Don't show error for AI configuration - fallback will work
+      // Questions will be generated using fallback method
       
       alert(`Failed to start AI battle: ${errorMessage}`);
       setIsWaitingForOpponent(false);

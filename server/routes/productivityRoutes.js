@@ -182,40 +182,48 @@ router.post('/update', async (req, res) => {
 // Helper function: Get weekly data
 async function getWeeklyData(userId) {
   const today = new Date();
-  const weekAgo = new Date(today);
-  weekAgo.setDate(weekAgo.getDate() - 7);
+  today.setHours(0, 0, 0, 0);
+  
+  // Get the start of the current week (Monday)
+  const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to Monday = 0
+  const weekStart = new Date(today);
+  weekStart.setDate(today.getDate() - daysFromMonday);
+  
+  // Get the end of the current week (Sunday)
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999);
 
   const sessions = await StudySession.find({
     userId,
-    createdAt: { $gte: weekAgo }
+    createdAt: { $gte: weekStart, $lte: weekEnd }
   });
 
-  // Group by day
-  const dailyData = {};
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  // Day names in order (Monday to Sunday)
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const dayIndexMap = { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 0: 6 }; // Map getDay() to our array index
 
-  // Initialize all days with 0
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - (6 - i));
-    const dayName = days[date.getDay()];
-    dailyData[dayName] = 0;
-  }
+  // Initialize all days with 0 in correct order
+  const dailyData = dayNames.map(day => ({ day, hours: 0 }));
 
   // Calculate study time per day
   sessions.forEach(session => {
     const sessionDate = new Date(session.createdAt);
-    const dayName = days[sessionDate.getDay()];
-    if (dailyData[dayName] !== undefined) {
-      dailyData[dayName] += (session.duration || 0) / 3600; // in hours
+    sessionDate.setHours(0, 0, 0, 0);
+    
+    // Check if session is within current week
+    if (sessionDate >= weekStart && sessionDate <= weekEnd) {
+      const dayOfWeek = sessionDate.getDay();
+      const dayIndex = dayIndexMap[dayOfWeek];
+      
+      if (dayIndex !== undefined && dailyData[dayIndex]) {
+        dailyData[dayIndex].hours += (session.duration || 0) / 3600; // in hours
+      }
     }
   });
 
-  // Convert to array format
-  return Object.keys(dailyData).map(day => ({
-    day,
-    hours: dailyData[day]
-  }));
+  return dailyData;
 }
 
 // Helper function: Update streak

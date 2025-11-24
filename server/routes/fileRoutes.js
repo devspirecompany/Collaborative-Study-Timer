@@ -367,22 +367,30 @@ router.get('/reviewers/:userId', async (req, res) => {
       });
     }
     
+    // Try both ObjectId and String queries
     if (mongoose.Types.ObjectId.isValid(userId) && userId.toString().length === 24) {
-      // Valid ObjectId format - query normally
+      // Valid ObjectId format - try ObjectId first
       try {
         reviewers = await Reviewer.find({ userId: new mongoose.Types.ObjectId(userId) }).sort({ createdAt: -1 });
+        console.log(`✅ Found ${reviewers.length} reviewers using ObjectId query`);
       } catch (queryError) {
-        console.log('⚠️ Error querying with ObjectId, returning empty:', queryError.message);
-        reviewers = [];
+        console.log('⚠️ Error querying with ObjectId, trying string:', queryError.message);
+        // Fallback to string query
+        try {
+          reviewers = await Reviewer.find({ userId: userId.toString() }).sort({ createdAt: -1 });
+          console.log(`✅ Found ${reviewers.length} reviewers using string query`);
+        } catch (stringError) {
+          console.log('⚠️ Both ObjectId and string queries failed:', stringError.message);
+          reviewers = [];
+        }
       }
     } else {
-      // String userId (e.g., "demo-user")
-      // Try querying as string
+      // String userId (e.g., "demo-user") - try string first
       try {
         reviewers = await Reviewer.find({ userId: userId.toString() }).sort({ createdAt: -1 });
+        console.log(`✅ Found ${reviewers.length} reviewers using string query`);
       } catch (queryError) {
-        // Schema might require ObjectId, that's okay - return empty
-        console.log(`⚠️ Could not query with string userId (normal if schema requires ObjectId): ${queryError.message}`);
+        console.log(`⚠️ Could not query with string userId: ${queryError.message}`);
         reviewers = [];
       }
     }

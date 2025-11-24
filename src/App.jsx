@@ -11,6 +11,7 @@ import ProductivityTracker from './components/ProductivityTracker';
 import SoloPractice from './components/SoloPractice';
 import StudyRoom from './components/StudyRoom';
 import ReviewerStudy from './components/ReviewerStudy';
+import Profile from './components/Profile';
 import './styles/StudentDashboard.css';
 import './styles/StudentLogin.css';
 import './styles/StudentRegistration.css';
@@ -38,6 +39,7 @@ function App() {
       <Route path="/reviewer-study" element={<ReviewerStudy />} />
       <Route path="/achievements" element={<Achievements />} />
       <Route path="/productivity-tracker" element={<ProductivityTracker />} />
+      <Route path="/profile" element={<Profile />} />
     </Routes>
   );
 }
