@@ -77,7 +77,10 @@ const StudentLogin = () => {
       // Send login data to backend with timeout
       const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      // Increased timeout for Render free tier (may spin-down delay of 30-60s)
+      const isProduction = API_BASE_URL.includes('render.com') || API_BASE_URL.includes('vercel.app');
+      const timeoutDuration = isProduction ? 90000 : 10000; // 90s for production, 10s for local
+      const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
 
       const response = await fetch(`${API_BASE_URL}/users/login`, {
         method: 'POST',
@@ -120,7 +123,11 @@ const StudentLogin = () => {
     } catch (error) {
       console.error('Login error:', error);
       if (error.name === 'AbortError') {
-        showNotification('Connection timeout. Please make sure the backend server is running on port 5000.', 'error');
+        const isProduction = (process.env.REACT_APP_API_URL || '').includes('render.com');
+        const errorMsg = isProduction 
+          ? 'Backend is waking up (may take 30-60 seconds on free tier). Please try again in a moment.'
+          : 'Connection timeout. Please make sure the backend server is running on port 5000.';
+        showNotification(errorMsg, 'error');
       } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
         showNotification('Cannot connect to server. Please make sure the backend server is running.', 'error');
       } else {
