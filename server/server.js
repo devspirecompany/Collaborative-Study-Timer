@@ -27,7 +27,9 @@ app.use(cors({
     process.env.FRONTEND_URL || 'http://localhost:3000',
     'http://localhost:3000',
     'http://localhost:3001',
-    'http://localhost:3002'
+    'http://localhost:3002',
+    'https://collaborative-study-timer.vercel.app', // Vercel frontend
+    'https://collaborative-study-timer-git-master-devspires-projects.vercel.app' // Vercel preview
   ],
   credentials: true
 }));
