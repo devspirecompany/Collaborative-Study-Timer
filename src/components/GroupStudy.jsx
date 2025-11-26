@@ -22,6 +22,8 @@ const GroupStudy = () => {
   const [answeredQuestions, setAnsweredQuestions] = useState(new Set());
   const [isWaitingForOpponent, setIsWaitingForOpponent] = useState(false);
   const [roomId, setRoomId] = useState(null);
+  const [groupQuizPlayers, setGroupQuizPlayers] = useState([]); // For Group Quiz player list
+  const [groupQuizPollInterval, setGroupQuizPollInterval] = useState(null); // Store polling interval
   
   // Get user data from localStorage
   const [userData] = useState(() => {
@@ -466,6 +468,23 @@ const GroupStudy = () => {
       await navigator.clipboard.writeText(createdRoomCode);
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
+      
+      // For Group Quiz, show waiting room modal after copying (same as 1v1)
+      if (competitionType === 'group' && roomId) {
+        setTimeout(() => {
+          setShowRoomCodeModal(false);
+          setShowWaitingRoom(true);
+          setIsWaitingRoomHost(true);
+          // Initialize with current user
+          setWaitingRoomParticipants([{
+            userId: userId,
+            username: playerName,
+            joinedAt: new Date()
+          }]);
+          // Start polling for players using roomId
+          pollForGroupQuizPlayers(roomId);
+        }, 1000); // 1 second delay to show "Copied!" feedback
+      }
     } catch (error) {
       console.error('Failed to copy:', error);
     }
@@ -546,8 +565,13 @@ const GroupStudy = () => {
   useEffect(() => {
     return () => {
       stopWaitingRoomPolling();
+      // Cleanup group quiz polling
+      if (groupQuizPollInterval) {
+        clearInterval(groupQuizPollInterval);
+        setGroupQuizPollInterval(null);
+      }
     };
-  }, []);
+  }, [groupQuizPollInterval]);
 
   // Join room after showing code
   const handleJoinCreatedRoom = () => {
@@ -605,7 +629,17 @@ const GroupStudy = () => {
             // Waiting for competition to start
             setShowJoinRoomModal(false);
             if (competitionType === 'group') {
-              setIsWaitingForOpponent(true);
+              // For Group Quiz, show waiting room modal (same as 1v1)
+              setCreatedRoomCode(joinResponse.competition.roomId);
+              setShowWaitingRoom(true);
+              setIsWaitingRoomHost(false); // Joining player is not host
+              // Initialize with current user
+              setWaitingRoomParticipants([{
+                userId: userId,
+                username: playerName,
+                joinedAt: new Date()
+              }]);
+              // Start polling for players
               pollForGroupQuizPlayers(joinResponse.competition.roomId);
             } else {
               // For 1v1, wait for opponent
@@ -757,7 +791,7 @@ const GroupStudy = () => {
         explanation: q.explanation || ''
       }));
       
-      // Create competition with generated questions
+      // Create competition with generated questions (use short roomCode as roomId)
       const createResponse = await createCompetition({
         userId,
         playerName,
@@ -767,7 +801,8 @@ const GroupStudy = () => {
         numberOfQuestions: numberOfQuestions,
         opponentType: 'player',
         maxPlayers: 2,
-        isGroupQuiz: false
+        isGroupQuiz: false,
+        roomId: roomCode // Use the short roomCode as roomId
       });
 
       if (createResponse.success) {
@@ -939,6 +974,13 @@ const GroupStudy = () => {
 
       // No match found (or AI selected), create new room
       console.log(isAIOpponent ? '🤖 Creating competition with AI opponent...' : '📝 No match found, creating new room...');
+      
+      // Generate short roomCode for group quiz or 1v1 with player opponent (not AI)
+      let roomCodeForCompetition = null;
+      if (isGroupQuiz || (!isAIOpponent && competitionType === '1v1')) {
+        roomCodeForCompetition = Math.random().toString(36).substring(2, 8).toUpperCase();
+      }
+      
       const createResponse = await createCompetition({
         userId,
         playerName, // Pass playerName for AI competitions
@@ -948,11 +990,15 @@ const GroupStudy = () => {
         numberOfQuestions: competitionType === '1v1' ? numberOfQuestions : undefined, // Pass number of questions for 1v1
         opponentType: competitionType === '1v1' ? opponentType : undefined, // Pass opponent type for 1v1 ('player' or 'ai')
         maxPlayers: isGroupQuiz ? maxPlayers : 2,
-        isGroupQuiz: isGroupQuiz
+        isGroupQuiz: isGroupQuiz,
+        roomId: roomCodeForCompetition // Use short roomCode as roomId for group quiz and 1v1 with player
       });
 
       if (createResponse.success) {
         setRoomId(createResponse.competition.roomId);
+        if (roomCodeForCompetition) {
+          setCreatedRoomCode(roomCodeForCompetition);
+        }
         const questions = createResponse.competition.questions;
         setSampleQuestions(questions);
 
@@ -995,14 +1041,17 @@ const GroupStudy = () => {
           });
 
           if (joinResponse.success) {
-            // For group quiz, show room code and wait for players
+            // For group quiz, show room code modal (same as 1v1)
             if (isGroupQuiz) {
               setIsWaitingForOpponent(false);
-              // Show room code modal for group quiz
-              setCreatedRoomCode(createResponse.competition.roomId);
+              // Show room code modal for group quiz (use short roomCode if available)
+              if (roomCodeForCompetition) {
+                setCreatedRoomCode(roomCodeForCompetition);
+              } else {
+                setCreatedRoomCode(createResponse.competition.roomId);
+              }
               setShowRoomCodeModal(true);
-              // Start polling for players
-              pollForGroupQuizPlayers(createResponse.competition.roomId);
+              // Don't start polling yet - wait for user to copy code or click "Wait for Players"
             } else {
               // For 1v1 with real player, wait for opponent or start if already 2 players
               if (joinResponse.competition.players.length >= 2) {
@@ -1039,28 +1088,66 @@ const GroupStudy = () => {
 
   // Poll for group quiz players (different from 1v1)
   const pollForGroupQuizPlayers = async (roomIdToPoll) => {
+    // Clear any existing interval
+    if (groupQuizPollInterval) {
+      clearInterval(groupQuizPollInterval);
+    }
+    
+    // Store interval reference for cleanup
     const pollInterval = setInterval(async () => {
       try {
         const response = await getCompetition(roomIdToPoll);
         if (response.success && response.competition) {
-          // Check if host wants to start (you can add a start button)
-          // For now, just show player count
-          const playerCount = response.competition.players.length;
-          console.log(`👥 Group quiz: ${playerCount} players joined`);
+          const players = response.competition.players || [];
+          const playerCount = players.length;
+          const maxPlayers = response.competition.maxPlayers || 10;
           
-          // Auto-start when at least 2 players (optional - you can make it manual)
-          // if (playerCount >= 2 && response.competition.status === 'waiting') {
-          //   // Host can manually start
-          // }
+          // Update player list for modal display
+          const participants = players.map(player => ({
+            userId: player.userId?.toString() || player.userId,
+            username: player.playerName,
+            joinedAt: player.joinedAt || new Date()
+          }));
+          setWaitingRoomParticipants(participants);
+          setGroupQuizPlayers(players);
+          console.log(`👥 Group quiz: ${playerCount}/${maxPlayers} players joined`);
+          
+          // Check if competition has started (host clicked start)
+          if (response.competition.status === 'in-progress') {
+            clearInterval(pollInterval);
+            setGroupQuizPollInterval(null);
+            setShowWaitingRoom(false);
+            setIsWaitingForOpponent(false);
+            setIsInCompetition(true);
+            
+            // Set up competition data
+            const questions = response.competition.questions;
+            setTimePerQuestion(20);
+            setTimeRemaining(20);
+            setSampleQuestions(questions);
+            setCompetitionData({
+              opponentName: 'Group Quiz',
+              opponentAvatar: '👥',
+              totalQuestions: questions.length,
+              subject: response.competition.subject,
+              isGroupQuiz: true
+            });
+            setCurrentQuestionIndex(0);
+            setScore(0);
+            setOpponentScore(0);
+            setAnsweredQuestions(new Set());
+            setSelectedAnswer(null);
+          }
         }
       } catch (error) {
         console.error('Error polling for group quiz players:', error);
         clearInterval(pollInterval);
+        setGroupQuizPollInterval(null);
       }
     }, 2000); // Poll every 2 seconds
     
-    // Cleanup on unmount
-    return () => clearInterval(pollInterval);
+    // Store interval for cleanup
+    setGroupQuizPollInterval(pollInterval);
   };
 
   const pollForOpponent = async (roomIdToPoll) => {
@@ -1341,6 +1428,10 @@ const GroupStudy = () => {
   };
 
   if (isWaitingForOpponent) {
+    const isGroupQuizMode = competitionType === 'group';
+    const playerCount = isGroupQuizMode ? groupQuizPlayers.length : 0;
+    const maxPlayersForQuiz = isGroupQuizMode ? maxPlayers : 2;
+    
     return (
       <div className="dashboard-container">
         <Sidebar />
@@ -1351,17 +1442,64 @@ const GroupStudy = () => {
                 <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
               </svg>
             </div>
-            <h2>Finding an opponent...</h2>
-            <p>Searching for available players to match with you...</p>
-            <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-              <p>💡 <strong>How matching works:</strong></p>
-              <ul style={{ textAlign: 'left', display: 'inline-block', marginTop: '0.5rem' }}>
-                <li>System automatically finds waiting players</li>
-                <li>Matches by same subject (if available)</li>
-                <li>If no match found, creates a room and waits</li>
-                <li>Others can join when they click "Start Competition"</li>
-              </ul>
-            </div>
+            {isGroupQuizMode ? (
+              <>
+                <h2>Waiting for players...</h2>
+                <p>Share your room code: <strong style={{ fontSize: '1.2rem', color: 'var(--primary)' }}>{createdRoomCode}</strong></p>
+                <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--card-bg)', borderRadius: '0.75rem', minWidth: '300px' }}>
+                  <p style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>
+                    <strong>Players joined: {playerCount}/{maxPlayersForQuiz}</strong>
+                  </p>
+                  {groupQuizPlayers.length > 0 && (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      {groupQuizPlayers.map((player, index) => (
+                        <div key={index} style={{ 
+                          padding: '0.5rem', 
+                          margin: '0.25rem 0', 
+                          background: 'var(--bg-secondary)', 
+                          borderRadius: '0.5rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem'
+                        }}>
+                          <div style={{ 
+                            width: '32px', 
+                            height: '32px', 
+                            borderRadius: '50%', 
+                            background: 'var(--primary)', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            color: 'white',
+                            fontWeight: 'bold'
+                          }}>
+                            {player.playerName?.charAt(0) || 'P'}
+                          </div>
+                          <span>{player.playerName || `Player ${index + 1}`}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                  Waiting for more players to join...
+                </p>
+              </>
+            ) : (
+              <>
+                <h2>Finding an opponent...</h2>
+                <p>Searching for available players to match with you...</p>
+                <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                  <p>💡 <strong>How matching works:</strong></p>
+                  <ul style={{ textAlign: 'left', display: 'inline-block', marginTop: '0.5rem' }}>
+                    <li>System automatically finds waiting players</li>
+                    <li>Matches by same subject (if available)</li>
+                    <li>If no match found, creates a room and waits</li>
+                    <li>Others can join when they click "Start Competition"</li>
+                  </ul>
+                </div>
+              </>
+            )}
           </div>
         </main>
       </div>
@@ -2383,8 +2521,18 @@ const GroupStudy = () => {
                     className="btn-primary" 
                     onClick={() => {
                       setShowRoomCodeModal(false);
+                      setShowWaitingRoom(true);
+                      setIsWaitingRoomHost(true);
+                      // Initialize with current user
+                      setWaitingRoomParticipants([{
+                        userId: userId,
+                        username: playerName,
+                        joinedAt: new Date()
+                      }]);
                       // Start polling for players - quiz will start when host clicks start
-                      pollForGroupQuizPlayers(createdRoomCode);
+                      if (roomId) {
+                        pollForGroupQuizPlayers(roomId);
+                      }
                     }}
                     style={{ 
                       flex: 1,
@@ -3480,11 +3628,13 @@ const GroupStudy = () => {
                       animation: 'spin 1s linear infinite'
                     }}></div>
                     <span style={{ fontSize: '1rem' }}>
-                      {isWaitingRoomHost 
-                        ? 'Waiting for opponent to join...' 
-                        : waitingRoomParticipants.length >= 2 
-                          ? 'Both players ready! Starting room...' 
-                          : 'Waiting for host to start the room...'}
+                      {competitionType === 'group' 
+                        ? `Waiting for players to join... (${waitingRoomParticipants.length}/${maxPlayers})`
+                        : isWaitingRoomHost 
+                          ? 'Waiting for opponent to join...' 
+                          : waitingRoomParticipants.length >= 2 
+                            ? 'Both players ready! Starting room...' 
+                            : 'Waiting for host to start the room...'}
                     </span>
                   </div>
 
@@ -3502,7 +3652,7 @@ const GroupStudy = () => {
                       marginBottom: '0.75rem',
                       textAlign: 'center'
                     }}>
-                      Participants ({waitingRoomParticipants.length}/2)
+                      Participants ({waitingRoomParticipants.length}/{competitionType === 'group' ? maxPlayers : 2})
                     </p>
                     <div style={{
                       display: 'flex',
@@ -3537,11 +3687,11 @@ const GroupStudy = () => {
                             fontSize: '0.95rem'
                           }}>
                             {participant.username || 'Unknown'}
-                            {participant.userId === userId && ' (You)'}
+                            {(participant.userId === userId || participant.userId?.toString() === userId?.toString()) && ' (You)'}
                           </span>
                         </div>
                       ))}
-                      {waitingRoomParticipants.length < 2 && (
+                      {waitingRoomParticipants.length < (competitionType === 'group' ? maxPlayers : 2) && (
                         <div style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -3570,7 +3720,9 @@ const GroupStudy = () => {
                             fontSize: '0.95rem',
                             fontStyle: 'italic'
                           }}>
-                            Waiting for opponent...
+                            {competitionType === 'group' 
+                              ? 'Waiting for more players...' 
+                              : 'Waiting for opponent...'}
                           </span>
                         </div>
                       )}

@@ -12,7 +12,7 @@
     <nav class="topnav">
         <div class="nav-left">
             <div class="logo-nav">
-                <img src="..//imgs/SpireWorksLogo.png" alt="SpireWorks Logo">
+                <img src="../imgs/SpireWorksLogo.png" alt="SpireWorks Logo">
                 <h1>SpireWorks</h1>
             </div>
             <div class="search-bar">
@@ -73,7 +73,7 @@
     <div class="notification-sidebar" id="notificationSidebar">
         <div class="notification-header">
             <h3>Notifications</h3>
-            <button class="close-notification" id="closeNotification">
+            <button class="close-notification" id="closeNotification" aria-label="Close notifications">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
                     <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -197,6 +197,7 @@
             <div class="welcome-content">
                 <h2>Welcome back, Ash! <span class="wave-emoji">👋</span></h2>
                 <p>Ready to conquer your goals today? Let's make it productive!</p>
+                <button onclick="createRoom()" class="test-create-room-btn">Test: Create Room</button>
             </div>
         </div>
 
@@ -335,7 +336,7 @@
             <div>
                 <div class="timer-widget">
                     <div class="timer-display-container">
-                        <button class="time-nav-btn" id="decreaseTime">
+                        <button class="time-nav-btn" id="decreaseTime" aria-label="Decrease time">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M15 18l-6-6 6-6"/>
                             </svg>
@@ -344,25 +345,25 @@
                             <div class="timer-display" id="timerDisplay">25:00</div>
                             <div class="timer-preset">25 min</div>
                         </div>
-                        <button class="time-nav-btn" id="increaseTime">
+                        <button class="time-nav-btn" id="increaseTime" aria-label="Increase time">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M9 18l6-6-6-6"/>
                             </svg>
                         </button>
                     </div>
                     <div class="timer-controls">
-                        <button class="timer-btn" id="startBtn">
+                        <button class="timer-btn" id="startBtn" aria-label="Start timer">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
                             </svg>
                         </button>
-                        <button class="timer-btn" id="pauseBtn" style="display: none;">
+                        <button class="timer-btn" id="pauseBtn" aria-label="Pause timer">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <rect x="6" y="4" width="4" height="16"></rect>
                                 <rect x="14" y="4" width="4" height="16"></rect>
                             </svg>
                         </button>
-                        <button class="timer-btn" id="resetBtn">
+                        <button class="timer-btn" id="resetBtn" aria-label="Reset timer">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
                                 <path d="M3 3v5h5"></path>
@@ -387,7 +388,7 @@
                             <div class="achievement-title">Study Marathon</div>
                             <div class="achievement-stat">75/100 hours</div>
                             <div class="achievement-progress-bar">
-                                <div class="achievement-progress-fill" style="width: 75%"></div>
+                                <div class="achievement-progress-fill achievement-progress-75"></div>
                             </div>
                         </div>
                     </div>
@@ -401,7 +402,7 @@
                             <div class="achievement-title">Streak Master</div>
                             <div class="achievement-stat">15/30 days</div>
                             <div class="achievement-progress-bar">
-                                <div class="achievement-progress-fill" style="width: 50%"></div>
+                                <div class="achievement-progress-fill achievement-progress-50"></div>
                             </div>
                         </div>
                     </div>
@@ -459,6 +460,116 @@
             </div>
         </div>
     </main>
+
+    <!-- Room Created Modal (Shows Room Code) -->
+    <div class="modal-overlay" id="roomCreatedModal">
+        <div class="modal-content invite-modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="room-created-icon">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                </div>
+                <h2>Room Created!</h2>
+                <p class="modal-subtitle">Battle against another player</p>
+                <button class="modal-close" id="closeRoomCreatedModal" aria-label="Close room created modal">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="room-code-container">
+                    <p class="room-code-label">Your Room Code</p>
+                    <div class="room-code-box">
+                        <div class="room-code" id="roomCodeDisplay">F40LN2</div>
+                    </div>
+                    <div class="room-code-actions">
+                        <button class="btn-copy-code" id="copyCodeBtn" type="button">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                            </svg>
+                            <span id="copyCodeText">Copy Code</span>
+                        </button>
+                        <button class="btn-enter-room" id="enterRoomBtn" type="button">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                                <polyline points="10 17 15 12 10 7"></polyline>
+                                <line x1="15" y1="12" x2="3" y2="12"></line>
+                            </svg>
+                            <span>Enter Room</span>
+                        </button>
+                    </div>
+                    <div class="redirect-loading" id="redirectLoading">
+                        <div class="loading-spinner-small"></div>
+                        <p class="loading-text">Redirecting to waiting room...</p>
+                    </div>
+                </div>
+                <p class="modal-instruction">Share this code with your opponent. You'll be redirected to the waiting room automatically.</p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" id="closeRoomCreatedBtn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Waiting Room Modal -->
+    <div class="modal-overlay" id="waitingRoomModal">
+        <div class="modal-content waiting-room-modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2>Waiting Room</h2>
+                <button class="modal-close" id="closeWaitingRoomModal" aria-label="Close waiting room modal">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="waiting-status">
+                    <div class="loading-spinner"></div>
+                    <h3 id="waitingStatusText">Waiting for opponent to join...</h3>
+                    <p class="waiting-description" id="waitingDescription">Share the room code with your opponent. Once they join, the game will begin automatically.</p>
+                </div>
+                
+                <div class="room-info">
+                    <div class="room-code-display">
+                        <span class="room-label">Room Code:</span>
+                        <span class="room-code-value" id="waitingRoomCode">F40LN2</span>
+                        <button class="btn-copy-code-small" id="copyWaitingRoomCode" type="button" title="Copy room code">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="players-section">
+                    <h4 class="players-section-title">Players in Room</h4>
+                    <div class="players-list" id="playersList">
+                        <div class="player-item host">
+                            <div class="player-avatar">AQ</div>
+                            <div class="player-info">
+                                <div class="player-name">You (Host)</div>
+                                <div class="player-status ready">Ready</div>
+                            </div>
+                        </div>
+                        <!-- Players will be added here dynamically -->
+                    </div>
+                </div>
+
+                <div class="waiting-actions">
+                    <button class="btn-secondary" id="cancelWaitingBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="../JS/StudentDashboard.js"></script>
 </body>

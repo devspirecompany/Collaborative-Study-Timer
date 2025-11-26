@@ -139,7 +139,10 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log('🔐 Login attempt:', { email: email ? email.toLowerCase() : 'missing', hasPassword: !!password });
+
     if (!email || !password) {
+      console.log('❌ Missing email or password');
       return res.status(400).json({
         success: false,
         message: 'Email and password are required'
@@ -150,21 +153,27 @@ router.post('/login', async (req, res) => {
     const user = await User.findOne({ email: email.toLowerCase() });
 
     if (!user) {
+      console.log('❌ User not found:', email.toLowerCase());
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
       });
     }
+
+    console.log('✅ User found:', { userId: user._id, email: user.email });
 
     // Check password
     const isPasswordValid = await user.comparePassword(password);
 
     if (!isPasswordValid) {
+      console.log('❌ Invalid password for user:', email.toLowerCase());
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
       });
     }
+
+    console.log('✅ Password valid, login successful');
 
     // Don't send password back
     const userResponse = user.toObject();
@@ -176,7 +185,9 @@ router.post('/login', async (req, res) => {
       user: userResponse
     });
   } catch (error) {
-    console.error('Error logging in:', error);
+    console.error('❌ Error logging in:', error);
+    console.error('   Error message:', error.message);
+    console.error('   Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Error logging in',

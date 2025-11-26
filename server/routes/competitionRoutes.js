@@ -9,7 +9,7 @@ const Competition = require('../models/Competition');
  */
 router.post('/create', async (req, res) => {
   try {
-    const { userId, subject, questions, maxPlayers = 2, isGroupQuiz = false, opponentType, numberOfQuestions, playerName } = req.body;
+    const { userId, subject, questions, maxPlayers = 2, isGroupQuiz = false, opponentType, numberOfQuestions, playerName, roomId: customRoomId } = req.body;
 
     if (!userId || !subject) {
       return res.status(400).json({
@@ -18,8 +18,21 @@ router.post('/create', async (req, res) => {
       });
     }
 
-    // Generate room ID
-    const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Use custom roomId if provided, otherwise generate one
+    let roomId = customRoomId;
+    if (!roomId) {
+      // Generate room ID
+      roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    }
+    
+    // Check if roomId already exists
+    const existingRoom = await Competition.findOne({ roomId });
+    if (existingRoom) {
+      return res.status(400).json({
+        success: false,
+        message: 'Room ID already exists. Please try again.'
+      });
+    }
 
     // Use provided questions or generate sample questions
     let competitionQuestions = questions || [];

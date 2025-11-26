@@ -1,3 +1,6 @@
+// Debug mode - set to false for production
+const DEBUG_MODE = false;
+
 let timerInterval;
 let isRunning = false;
 
@@ -52,7 +55,10 @@ function startTimer() {
     if (!isRunning) {
         isRunning = true;
         startBtn.style.display = 'none';
-        pauseBtn.style.display = 'flex';
+        if (pauseBtn) {
+            pauseBtn.style.display = 'flex';
+            pauseBtn.classList.add('show');
+        }
         
         timerInterval = setInterval(() => {
             if (timeRemaining > 0) {
@@ -70,7 +76,10 @@ function stopTimer() {
     isRunning = false;
     clearInterval(timerInterval);
     startBtn.style.display = 'flex';
-    pauseBtn.style.display = 'none';
+    if (pauseBtn) {
+        pauseBtn.style.display = 'none';
+        pauseBtn.classList.remove('show');
+    }
 }
 
 function resetTimer() {
@@ -439,6 +448,360 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
     });
 });
 
+// Room Creation & Waiting Room Functionality
+let roomCode = 'F40LN2';
+let waitingRoomInterval = null;
+let playersInRoom = [];
+let roomCreated = false;
+
+// Generate random room code
+function generateRoomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+}
+
+// Create a new room
+function createRoom() {
+    roomCode = generateRoomCode();
+    roomCreated = true;
+    showRoomCreatedModal();
+}
+
+// Show Room Created Modal (with room code)
+function showRoomCreatedModal() {
+    const modal = document.getElementById('roomCreatedModal');
+    const roomCodeDisplay = document.getElementById('roomCodeDisplay');
+    const waitingRoomCode = document.getElementById('waitingRoomCode');
+    const redirectLoading = document.getElementById('redirectLoading');
+    
+    if (!modal) {
+        console.error('Room created modal not found!');
+        return;
+    }
+    
+    if (!roomCodeDisplay) {
+        console.error('Room code display not found!');
+        return;
+    }
+    
+    // Update room code displays
+    roomCodeDisplay.textContent = roomCode;
+    if (waitingRoomCode) {
+        waitingRoomCode.textContent = roomCode;
+    }
+    
+    // Hide loading indicator initially
+    if (redirectLoading) {
+        redirectLoading.style.display = 'none';
+    }
+    
+    // Hide enter room button initially
+    const enterRoomBtn = document.getElementById('enterRoomBtn');
+    if (enterRoomBtn) {
+        enterRoomBtn.classList.remove('show');
+    }
+    
+    // Show modal
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+// Close Room Created Modal
+function closeRoomCreatedModalFunc() {
+    const modal = document.getElementById('roomCreatedModal');
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+        // If user cancels, reset room
+        if (!roomCreated) {
+            roomCode = '';
+        }
+    }
+}
+
+// Alias for backward compatibility
+const closeRoomCreatedModal = closeRoomCreatedModalFunc;
+
+// Show Waiting Room Modal
+function showWaitingRoomModal() {
+    console.log('showWaitingRoomModal called');
+    const roomCreatedModal = document.getElementById('roomCreatedModal');
+    const waitingModal = document.getElementById('waitingRoomModal');
+    const waitingRoomCode = document.getElementById('waitingRoomCode');
+    
+    console.log('waitingModal element:', waitingModal);
+    console.log('Current roomCode:', roomCode);
+    
+    if (!waitingModal) {
+        console.error('❌ Waiting room modal not found in HTML!');
+        alert('Waiting room modal not found. Please refresh the page.');
+        return;
+    }
+    
+    // Close room created modal if open
+    if (roomCreatedModal) {
+        roomCreatedModal.classList.remove('active');
+        console.log('Closed room created modal');
+    }
+    
+    // Update room code in waiting room
+    if (waitingRoomCode && roomCode) {
+        waitingRoomCode.textContent = roomCode;
+        console.log('Updated waiting room code to:', roomCode);
+    }
+    
+    // Show waiting room modal
+    waitingModal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    console.log('✅ Waiting room modal should now be visible');
+    
+    // Start checking for players
+    startWaitingRoomCheck();
+}
+
+// Close Waiting Room Modal
+function closeWaitingRoomModal() {
+    const modal = document.getElementById('waitingRoomModal');
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+        stopWaitingRoomCheck();
+        playersInRoom = [];
+        roomCreated = false;
+        roomCode = '';
+    }
+}
+
+// Start checking for players joining
+function startWaitingRoomCheck() {
+    // Reset players list (only show host initially)
+    playersInRoom = [];
+    updatePlayersList();
+    
+    // Simulate checking for players every 2 seconds
+    waitingRoomInterval = setInterval(() => {
+        checkForPlayers();
+    }, 2000);
+    
+    // Simulate a player joining after 5 seconds (for demo purposes)
+    setTimeout(() => {
+        simulatePlayerJoin();
+    }, 5000);
+}
+
+// Stop checking for players
+function stopWaitingRoomCheck() {
+    if (waitingRoomInterval) {
+        clearInterval(waitingRoomInterval);
+        waitingRoomInterval = null;
+    }
+}
+
+// Check for players (this would normally be an API call)
+function checkForPlayers() {
+    // In a real implementation, this would check the server/API
+    // For now, we'll simulate it
+    if (DEBUG_MODE) console.log('Checking for players...');
+}
+
+// Simulate a player joining
+function simulatePlayerJoin() {
+    const newPlayer = {
+        id: Date.now(),
+        name: 'Opponent',
+        avatar: 'OP',
+        status: 'ready'
+    };
+    
+    playersInRoom.push(newPlayer);
+    updatePlayersList();
+    updateWaitingStatus('Opponent joined! Starting game...');
+    
+    // After showing the joined message, start the game
+    setTimeout(() => {
+        startGame();
+    }, 2000);
+}
+
+// Update players list in the UI
+function updatePlayersList() {
+    const playersList = document.getElementById('playersList');
+    if (!playersList) return;
+    
+    // Clear existing players (except host)
+    const hostItem = playersList.querySelector('.player-item.host');
+    playersList.innerHTML = '';
+    
+    // Add host
+    if (hostItem) {
+        playersList.appendChild(hostItem);
+    } else {
+        const hostDiv = document.createElement('div');
+        hostDiv.className = 'player-item host';
+        hostDiv.innerHTML = `
+            <div class="player-avatar">AQ</div>
+            <div class="player-info">
+                <div class="player-name">You (Host)</div>
+                <div class="player-status ready">Ready</div>
+            </div>
+        `;
+        playersList.appendChild(hostDiv);
+    }
+    
+    // Add other players
+    playersInRoom.forEach((player, index) => {
+        const playerDiv = document.createElement('div');
+        playerDiv.className = 'player-item joined';
+        playerDiv.innerHTML = `
+            <div class="player-avatar">${player.avatar}</div>
+            <div class="player-info">
+                <div class="player-name">${player.name}</div>
+                <div class="player-status ${player.status}">${player.status === 'ready' ? 'Ready' : 'Waiting'}</div>
+            </div>
+        `;
+        playersList.appendChild(playerDiv);
+    });
+}
+
+// Update waiting status text
+function updateWaitingStatus(text) {
+    const statusText = document.getElementById('waitingStatusText');
+    if (statusText) {
+        statusText.textContent = text;
+    }
+}
+
+// Start the game (this would navigate to the game/competition page)
+function startGame() {
+    updateWaitingStatus('Starting game...');
+    
+    // In a real implementation, this would navigate to the game page
+    setTimeout(() => {
+        closeWaitingRoomModal();
+        alert('Game starting! This would navigate to the game/competition page.');
+        // window.location.href = 'game.html?room=' + roomCode;
+    }, 1000);
+}
+
+// Copy room code to clipboard
+function copyRoomCode() {
+    const code = roomCode;
+    
+    if (!code) {
+        console.error('No room code available!');
+        alert('Error: No room code available. Please create a room first.');
+        return;
+    }
+    
+    const copyBtn = document.getElementById('copyCodeBtn');
+    const copyText = document.getElementById('copyCodeText');
+    const enterRoomBtn = document.getElementById('enterRoomBtn');
+    const redirectLoading = document.getElementById('redirectLoading');
+    
+    if (!copyBtn || !copyText) {
+        console.error('Copy button elements not found!');
+        return;
+    }
+    
+    // Show copied state immediately
+    copyBtn.classList.add('copied');
+    copyText.textContent = 'Copied!';
+    
+    // Try to copy to clipboard
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(() => {
+            // Success - show Enter Room button
+            showEnterRoomButton(enterRoomBtn, redirectLoading);
+        }).catch(err => {
+            console.error('Failed to copy code:', err);
+            // Fallback: select text for manual copy
+            fallbackCopyTextToClipboard(code);
+            // Still show Enter Room button even if copy fails
+            showEnterRoomButton(enterRoomBtn, redirectLoading);
+        });
+    } else {
+        // Fallback for browsers that don't support clipboard API
+        fallbackCopyTextToClipboard(code);
+        // Show Enter Room button
+        showEnterRoomButton(enterRoomBtn, redirectLoading);
+    }
+    
+    // Reset button text after 2 seconds
+    setTimeout(() => {
+        if (copyBtn) {
+            copyBtn.classList.remove('copied');
+        }
+        if (copyText) {
+            copyText.textContent = 'Copy Code';
+        }
+    }, 2000);
+}
+
+// Show Enter Room button after copying code
+function showEnterRoomButton(enterRoomBtn, redirectLoading) {
+    // Hide loading indicator if it was shown
+    if (redirectLoading) {
+        redirectLoading.style.display = 'none';
+    }
+    
+    // Show Enter Room button
+    if (enterRoomBtn) {
+        enterRoomBtn.classList.add('show');
+        console.log('Enter Room button shown');
+    } else {
+        console.error('Enter Room button element not found!');
+    }
+}
+
+// Show loading indicator and redirect to waiting room (kept for backward compatibility)
+function showLoadingAndRedirect(redirectLoading) {
+    console.log('showLoadingAndRedirect called');
+    
+    // Show loading indicator
+    if (redirectLoading) {
+        redirectLoading.style.display = 'flex';
+        console.log('Loading indicator shown');
+    } else {
+        console.error('Redirect loading element not found!');
+    }
+    
+    // Automatically redirect to waiting room after a short delay
+    setTimeout(() => {
+        console.log('Redirecting to waiting room now...');
+        showWaitingRoomModal();
+    }, 1000); // 1 second after copying
+}
+
+// Fallback copy method for older browsers
+function fallbackCopyTextToClipboard(text) {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-999999px";
+    textArea.style.top = "-999999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+            console.log('Code copied using fallback method:', text);
+        } else {
+            console.warn('Fallback copy failed');
+        }
+    } catch (err) {
+        console.error('Fallback copy error:', err);
+    }
+    
+    document.body.removeChild(textArea);
+}
+
+// Event Listeners for Modals
 document.addEventListener('DOMContentLoaded', () => {
     updateTimerDisplay();
     updatePresetDisplay();
@@ -446,5 +809,129 @@ document.addEventListener('DOMContentLoaded', () => {
     createWeeklyChart();
     checkMobileMenu();
     
-    console.log('SpireWorks Dashboard Initialized Successfully! 🚀');
+    // Room Created Modal
+    const closeRoomCreatedModal = document.getElementById('closeRoomCreatedModal');
+    const closeRoomCreatedBtn = document.getElementById('closeRoomCreatedBtn');
+    const roomCreatedModal = document.getElementById('roomCreatedModal');
+    const copyCodeBtn = document.getElementById('copyCodeBtn');
+    
+    if (closeRoomCreatedModal) {
+        closeRoomCreatedModal.addEventListener('click', () => {
+            roomCreated = false;
+            closeRoomCreatedModalFunc();
+        });
+    }
+    
+    if (closeRoomCreatedBtn) {
+        closeRoomCreatedBtn.addEventListener('click', () => {
+            roomCreated = false;
+            closeRoomCreatedModalFunc();
+        });
+    }
+    
+    if (roomCreatedModal) {
+        roomCreatedModal.addEventListener('click', (e) => {
+            if (e.target === roomCreatedModal) {
+                roomCreated = false;
+                closeRoomCreatedModalFunc();
+            }
+        });
+    }
+    
+    if (copyCodeBtn) {
+        copyCodeBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            copyRoomCode();
+        });
+    } else {
+        console.error('Copy code button NOT found!');
+    }
+    
+    // Enter Room Button
+    const enterRoomBtn = document.getElementById('enterRoomBtn');
+    if (enterRoomBtn) {
+        enterRoomBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            // Close the room created modal first
+            closeRoomCreatedModalFunc();
+            // Then show the waiting room modal
+            setTimeout(() => {
+                showWaitingRoomModal();
+            }, 300); // Small delay for smooth transition
+        });
+    } else {
+        console.error('Enter room button NOT found!');
+    }
+    
+    // Waiting Room Modal
+    const closeWaitingRoomModalBtn = document.getElementById('closeWaitingRoomModal');
+    const cancelWaitingBtn = document.getElementById('cancelWaitingBtn');
+    const waitingRoomModal = document.getElementById('waitingRoomModal');
+    
+    if (closeWaitingRoomModalBtn) {
+        closeWaitingRoomModalBtn.addEventListener('click', closeWaitingRoomModal);
+    }
+    
+    if (cancelWaitingBtn) {
+        cancelWaitingBtn.addEventListener('click', closeWaitingRoomModal);
+    }
+    
+    if (waitingRoomModal) {
+        waitingRoomModal.addEventListener('click', (e) => {
+            if (e.target === waitingRoomModal) {
+                closeWaitingRoomModal();
+            }
+        });
+    }
+    
+    // Copy waiting room code button
+    const copyWaitingRoomCode = document.getElementById('copyWaitingRoomCode');
+    if (copyWaitingRoomCode) {
+        copyWaitingRoomCode.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (roomCode) {
+                navigator.clipboard.writeText(roomCode).then(() => {
+                    const btn = e.target.closest('button');
+                    if (btn) {
+                        const originalHTML = btn.innerHTML;
+                        btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>';
+                        setTimeout(() => {
+                            btn.innerHTML = originalHTML;
+                        }, 2000);
+                    }
+                }).catch(err => {
+                    console.error('Failed to copy:', err);
+                });
+            }
+        });
+    }
+    
+    // Make functions available globally (for testing or other triggers)
+    window.createRoom = createRoom;
+    window.showRoomCreatedModal = showRoomCreatedModal;
+    window.copyRoomCode = copyRoomCode;
+    window.showWaitingRoomModal = showWaitingRoomModal;
+    
+    // Verify all elements exist
+    const roomCreatedModal = document.getElementById('roomCreatedModal');
+    const waitingRoomModal = document.getElementById('waitingRoomModal');
+    const copyCodeBtn = document.getElementById('copyCodeBtn');
+    
+    if (!roomCreatedModal) {
+        console.error('❌ Room Created Modal not found in HTML!');
+    }
+    if (!waitingRoomModal) {
+        console.error('❌ Waiting Room Modal not found in HTML!');
+    }
+    if (!copyCodeBtn) {
+        console.error('❌ Copy Code Button not found in HTML!');
+    }
+    
+    if (roomCreatedModal && waitingRoomModal && copyCodeBtn) {
+        console.log('✅ All modal elements found! Ready to use.');
+        console.log('💡 Test by calling: createRoom()');
+    }
 });

@@ -110,12 +110,21 @@ app.use((req, res) => {
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
+  // Determine the actual API URL (for deployed services, use the service URL)
+  const isDeployed = process.env.RENDER_SERVICE_URL || process.env.VERCEL_URL || process.env.RAILWAY_STATIC_URL;
+  const apiUrl = isDeployed 
+    ? `${isDeployed}/api`
+    : `http://localhost:${PORT}/api`;
+  
   console.log(`\n🚀 Server running successfully!`);
   console.log(`   🌐 Server Port: ${PORT}`);
   console.log(`   🔌 MongoDB Port: 27017 (from MONGODB_URI)`);
   console.log(`   📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`   🔗 API URL: http://localhost:${PORT}/api`);
+  console.log(`   🔗 API URL: ${apiUrl}`);
   console.log(`   📡 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+  if (isDeployed) {
+    console.log(`   🌍 Deployment: ${isDeployed}`);
+  }
   console.log(`\n✅ Ready to accept requests!\n`);
 });
 
