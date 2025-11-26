@@ -220,8 +220,10 @@ router.post('/join', async (req, res) => {
     }
 
     // Check if player already joined
-    const existingPlayer = competition.players.find(p => p.userId.toString() === userId);
+    const existingPlayer = competition.players.find(p => p.userId.toString() === userId.toString());
     if (existingPlayer) {
+      console.log('✅ Player already in room, returning existing competition');
+      console.log('   Players:', competition.players.map(p => ({ userId: p.userId.toString(), name: p.playerName })));
       return res.json({
         success: true,
         competition: {
@@ -234,6 +236,9 @@ router.post('/join', async (req, res) => {
       });
     }
 
+    console.log('➕ Adding new player to room:', { userId, playerName });
+    console.log('   Current players before add:', competition.players.map(p => ({ userId: p.userId.toString(), name: p.playerName })));
+
     // Add player
     competition.players.push({
       userId,
@@ -242,10 +247,14 @@ router.post('/join', async (req, res) => {
       answers: []
     });
 
+    console.log('   Players after add:', competition.players.map(p => ({ userId: p.userId.toString(), name: p.playerName })));
+    console.log('   Total players:', competition.players.length);
+
     // Start competition if enough players
     if (competition.players.length >= competition.maxPlayers) {
       competition.status = 'in-progress';
       competition.startedAt = new Date();
+      console.log('🚀 Competition starting! Status changed to in-progress');
     }
 
     await competition.save();

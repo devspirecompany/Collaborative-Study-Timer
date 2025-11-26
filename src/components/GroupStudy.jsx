@@ -603,6 +603,13 @@ const GroupStudy = () => {
         });
         
         if (joinResponse.success) {
+          console.log('✅ Join successful!', {
+            roomId: joinResponse.competition.roomId,
+            players: joinResponse.competition.players,
+            playerCount: joinResponse.competition.players?.length || 0,
+            status: joinResponse.competition.status
+          });
+          
           setRoomId(joinResponse.competition.roomId);
           setSampleQuestions(joinResponse.competition.questions);
           setTimePerQuestion(20);
@@ -632,28 +639,66 @@ const GroupStudy = () => {
               // For Group Quiz, show waiting room modal (same as 1v1)
               setCreatedRoomCode(joinResponse.competition.roomId);
               setShowWaitingRoom(true);
-              setIsWaitingRoomHost(false); // Joining player is not host
-              // Initialize with current user
-              setWaitingRoomParticipants([{
-                userId: userId,
-                username: playerName,
-                joinedAt: new Date()
-              }]);
+              
+              // Get ALL players from the room (should include both host and joining player)
+              const existingPlayers = joinResponse.competition.players || [];
+              console.log('👥 Group Quiz - All players in room:', existingPlayers);
+              console.log('👤 Current user ID:', userId);
+              
+              // Check if user is host (first player in the room)
+              const isHost = existingPlayers.length > 0 && 
+                            (existingPlayers[0].userId?.toString() === userId?.toString() || 
+                             existingPlayers[0].userId === userId);
+              setIsWaitingRoomHost(isHost);
+              console.log('🏠 Is host?', isHost);
+              
+              // Initialize with ALL existing players (should show all players)
+              const participants = existingPlayers.map((player, index) => {
+                const participant = {
+                  userId: player.userId?.toString() || player.userId,
+                  username: player.playerName,
+                  joinedAt: player.joinedAt || new Date()
+                };
+                console.log(`   Player ${index + 1}:`, participant);
+                return participant;
+              });
+              
+              console.log('📋 Setting participants:', participants);
+              setWaitingRoomParticipants(participants);
+              
               // Start polling for players
               pollForGroupQuizPlayers(joinResponse.competition.roomId);
             } else {
               // For 1v1, show waiting room modal (same as Group Quiz)
               setCreatedRoomCode(joinResponse.competition.roomId);
               setShowWaitingRoom(true);
-              setIsWaitingRoomHost(false); // Joining player is not host
-              // Initialize with current user and existing players
+              
+              // Get ALL players from the room (should include both host and joining player)
               const existingPlayers = joinResponse.competition.players || [];
-              const participants = existingPlayers.map(player => ({
-                userId: player.userId?.toString() || player.userId,
-                username: player.playerName,
-                joinedAt: player.joinedAt || new Date()
-              }));
+              console.log('👥 All players in room:', existingPlayers);
+              console.log('👤 Current user ID:', userId);
+              
+              // Check if user is host (first player in the room)
+              const isHost = existingPlayers.length > 0 && 
+                            (existingPlayers[0].userId?.toString() === userId?.toString() || 
+                             existingPlayers[0].userId === userId);
+              setIsWaitingRoomHost(isHost);
+              console.log('🏠 Is host?', isHost);
+              
+              // Initialize with ALL existing players (should show both players)
+              const participants = existingPlayers.map((player, index) => {
+                const participant = {
+                  userId: player.userId?.toString() || player.userId,
+                  username: player.playerName,
+                  joinedAt: player.joinedAt || new Date()
+                };
+                console.log(`   Player ${index + 1}:`, participant);
+                return participant;
+              });
+              
+              console.log('📋 Setting participants:', participants);
               setWaitingRoomParticipants(participants);
+              
               // Start polling for opponent
               pollForOpponent(joinResponse.competition.roomId);
             }
