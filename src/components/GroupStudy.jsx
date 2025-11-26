@@ -831,32 +831,40 @@ const GroupStudy = () => {
       };
       const apiTestType = testTypeMap[quizType] || 'multiple_choice';
 
-      // Generate questions from file
-      const generatedQuestions = await generateQuestionsFromFile(
-        selectedFile.content,
-        selectedFile.subject,
-        numberOfQuestions,
-        apiTestType
-      );
-
-      if (!generatedQuestions || generatedQuestions.length === 0) {
-        throw new Error('Failed to generate questions from file');
+      // Generate questions from file (with fallback if AI fails)
+      let generatedQuestions = [];
+      try {
+        generatedQuestions = await generateQuestionsFromFile(
+          selectedFile.content,
+          selectedFile.subject,
+          numberOfQuestions,
+          apiTestType
+        );
+      } catch (aiError) {
+        console.error('⚠️ AI question generation failed:', aiError);
+        console.log('📝 AI failed, but continuing - backend will generate sample questions');
+        // Don't throw error - let backend generate sample questions as fallback
+        // This ensures room is created even if AI fails
       }
 
-      // Format questions for competition
-      const formattedQuestions = generatedQuestions.map(q => ({
-        question: q.question,
-        options: q.options || [],
-        correctAnswer: q.correctAnswer,
-        explanation: q.explanation || ''
-      }));
+      // Format questions for competition (if AI succeeded)
+      let formattedQuestions = [];
+      if (generatedQuestions && generatedQuestions.length > 0) {
+        formattedQuestions = generatedQuestions.map(q => ({
+          question: q.question,
+          options: q.options || [],
+          correctAnswer: q.correctAnswer,
+          explanation: q.explanation || ''
+        }));
+      }
+      // If AI failed, pass empty array - backend will generate sample questions
       
-      // Create competition with generated questions (use short roomCode as roomId)
+      // Create competition (backend will generate questions if empty array provided)
       const createResponse = await createCompetition({
         userId,
         playerName,
         subject: selectedFile.subject,
-        questions: formattedQuestions,
+        questions: formattedQuestions, // Empty array if AI failed - backend will generate
         quizType: quizType,
         numberOfQuestions: numberOfQuestions,
         opponentType: 'player',

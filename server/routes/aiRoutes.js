@@ -259,11 +259,11 @@ router.get('/test-models', async (req, res) => {
 
   const apiKey = process.env.GEMINI_API_KEY;
   const modelsToTest = [
-    'gemini-pro',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro',
-    'gemini-1.5-flash-001',
-    'gemini-1.5-flash-latest'
+    'gemini-1.5-flash', // Most common, works with v1 API
+    'gemini-1.5-flash-001', // Specific version
+    'gemini-1.5-flash-latest', // Latest version
+    'gemini-pro', // Fallback (older but stable)
+    'gemini-1.5-pro' // Alternative (may require paid tier)
   ];
 
   const results = [];
@@ -426,21 +426,21 @@ router.post('/generate-questions', async (req, res) => {
       let modelWorked = false;
       
       // Try different FREE tier model names
-      // Note: Model names may vary by region/API version
+      // Updated: Use v1 API compatible model names (v1beta has limited support)
       const freeTierModels = [
-        'gemini-pro', // Most stable, widely available
+        'gemini-1.5-flash', // Most common, works with v1 API
         'gemini-1.5-flash-001', // Specific version
-        'gemini-1.5-flash',
-        'gemini-1.5-flash-latest',
-        'gemini-1.5-pro', // Alternative
-        'models/gemini-pro', // With models/ prefix
-        'models/gemini-1.5-flash' // With models/ prefix
+        'gemini-1.5-flash-latest', // Latest version
+        'gemini-pro', // Fallback (older but stable)
+        'gemini-1.5-pro' // Alternative (may require paid tier)
       ];
       
       for (const testModelName of freeTierModels) {
         try {
-          console.log(`🔍 Trying Gemini model: ${testModelName}...`);
-          model = gemini.getGenerativeModel({ model: testModelName });
+          console.log(`🔍 Trying Gemini SDK model: ${testModelName}...`);
+          // Remove 'models/' prefix if present (SDK doesn't need it)
+          const cleanModelName = testModelName.replace(/^models\//, '');
+          model = gemini.getGenerativeModel({ model: cleanModelName });
           
           // Quick test to verify model works
           console.log('🧪 Testing model with a small API call...');
@@ -449,13 +449,19 @@ router.post('/generate-questions', async (req, res) => {
           const testText = testResponse.text();
           
           if (testText && testText.length > 0) {
-            modelName = testModelName;
+            modelName = cleanModelName; // Use clean name without prefix
             modelWorked = true;
-            console.log(`✅ Model ${modelName} is working! Test response: ${testText.substring(0, 50)}`);
+            console.log(`✅ SDK Model ${modelName} is working! Test response: ${testText.substring(0, 50)}`);
             break;
           }
         } catch (testError) {
-          console.log(`⚠️ Model ${testModelName} failed: ${testError.message}`);
+          // Check if it's an API version error - skip SDK and go to REST API
+          if (testError.message && testError.message.includes('not found for API version')) {
+            console.log(`⚠️ Model ${testModelName} not available in SDK API version: ${testError.message}`);
+            console.log('   → Will try REST API instead (supports v1 and v1beta)');
+            break; // Exit SDK testing, go to REST API
+          }
+          console.log(`⚠️ SDK Model ${testModelName} failed: ${testError.message}`);
           continue; // Try next model
         }
       }
@@ -464,22 +470,31 @@ router.post('/generate-questions', async (req, res) => {
       if (!modelWorked) {
         console.log('⚠️ SDK failed, trying REST API directly...');
         const apiKey = process.env.GEMINI_API_KEY;
-        const modelsToTry = ['gemini-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+        // Use v1 API models (more stable than v1beta)
+        const modelsToTry = [
+          'gemini-1.5-flash',  // Most common free tier model
+          'gemini-1.5-flash-001',  // Specific version
+          'gemini-pro',  // Fallback
+          'gemini-1.5-pro'  // Alternative
+        ];
         
         for (const restModelName of modelsToTry) {
           try {
-            // Try v1 first
-            let restUrl = `https://generativelanguage.googleapis.com/v1/models/${restModelName}:generateContent?key=${apiKey}`;
             const contentPreview = fileContent.length > 20000 
               ? fileContent.substring(0, 20000) + '\n\n[... content continues ...]' 
               : fileContent;
             const prompt = generatePromptForTestType(testType, numQuestions, subject, contentPreview);
             
-            console.log(`🔍 Trying REST API with model: ${restModelName} (v1)...`);
+            // Try v1 API first (more stable, recommended)
+            let restUrl = `https://generativelanguage.googleapis.com/v1/models/${restModelName}:generateContent?key=${apiKey}`;
+            console.log(`🔍 Trying REST API with model: ${restModelName} (v1 - recommended)...`);
             const startTime = Date.now();
             
+            let restResponse = null;
+            let apiVersionUsed = 'v1';
+            
             try {
-              const restResponse = await axios.post(restUrl, {
+              restResponse = await axios.post(restUrl, {
                 contents: [{
                   parts: [{
                     text: prompt
@@ -492,64 +507,56 @@ router.post('/generate-questions', async (req, res) => {
                 timeout: 60000
               });
               
-              if (restResponse.data && restResponse.data.candidates && restResponse.data.candidates[0]) {
-                const aiResponse = restResponse.data.candidates[0].content?.parts[0]?.text?.trim() || '';
-                console.log(`✅ REST API (v1) worked with ${restModelName}!`);
-                
-                // Parse response
-                let jsonString = aiResponse;
-                jsonString = jsonString.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-                let jsonMatch = jsonString.match(/\[[\s\S]*\]/);
-                
-                if (jsonMatch) {
-                  questions = JSON.parse(jsonMatch[0]);
-                  method = 'gemini-ai-rest';
-                  const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-                  console.log(`✅ Successfully generated ${questions.length} questions using REST API (took ${duration}s)`);
-                  modelWorked = true;
-                  break;
-                }
-              }
+              console.log(`✅ REST API (v1) worked with ${restModelName}!`);
             } catch (v1Error) {
-              // Try v1beta
+              // Only try v1beta if v1 fails (v1beta has limited model support)
+              console.log(`⚠️ v1 failed for ${restModelName}, trying v1beta...`);
               restUrl = `https://generativelanguage.googleapis.com/v1beta/models/${restModelName}:generateContent?key=${apiKey}`;
-              console.log(`🔍 Trying REST API with model: ${restModelName} (v1beta)...`);
+              apiVersionUsed = 'v1beta';
               
-              const restResponse = await axios.post(restUrl, {
-                contents: [{
-                  parts: [{
-                    text: prompt
+              try {
+                restResponse = await axios.post(restUrl, {
+                  contents: [{
+                    parts: [{
+                      text: prompt
+                    }]
                   }]
-                }]
-              }, {
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                timeout: 60000
-              });
-              
-              if (restResponse.data && restResponse.data.candidates && restResponse.data.candidates[0]) {
-                const aiResponse = restResponse.data.candidates[0].content?.parts[0]?.text?.trim() || '';
+                }, {
+                  headers: {
+                    'Content-Type': 'application/json'
+                  },
+                  timeout: 60000
+                });
+                
                 console.log(`✅ REST API (v1beta) worked with ${restModelName}!`);
-                
-                // Parse response
-                let jsonString = aiResponse;
-                jsonString = jsonString.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-                let jsonMatch = jsonString.match(/\[[\s\S]*\]/);
-                
-                if (jsonMatch) {
-                  questions = JSON.parse(jsonMatch[0]);
-                  method = 'gemini-ai-rest';
-                  const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-                  console.log(`✅ Successfully generated ${questions.length} questions using REST API (took ${duration}s)`);
-                  modelWorked = true;
-                  break;
-                }
+              } catch (v1betaError) {
+                console.log(`❌ Both v1 and v1beta failed for ${restModelName}: ${v1betaError.message}`);
+                continue; // Try next model
               }
+            }
+            
+            if (restResponse && restResponse.data && restResponse.data.candidates && restResponse.data.candidates[0]) {
+              const aiResponse = restResponse.data.candidates[0].content?.parts[0]?.text?.trim() || '';
+              
+              // Parse response
+              let jsonString = aiResponse;
+              jsonString = jsonString.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+              let jsonMatch = jsonString.match(/\[[\s\S]*\]/);
+              
+              if (jsonMatch) {
+                questions = JSON.parse(jsonMatch[0]);
+                method = `gemini-ai-rest-${apiVersionUsed}`;
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+                console.log(`✅ Successfully generated ${questions.length} questions using REST API ${apiVersionUsed} (took ${duration}s)`);
+                modelWorked = true;
+                break;
+              }
+            } else {
+              console.log(`⚠️ REST API response invalid for ${restModelName}`);
             }
           } catch (restError) {
             console.log(`⚠️ REST API failed for ${restModelName}: ${restError.message}`);
-            continue;
+            continue; // Try next model
           }
         }
       }
@@ -862,26 +869,34 @@ router.post('/create-reviewer', async (req, res) => {
         console.log('🤖 Attempting to use Gemini AI for study notes...');
         console.log(`📊 File content length: ${fileContent.length} characters`);
         
-        // Use FREE tier model - try multiple model names
+        // Use FREE tier model - try multiple model names (v1 API compatible)
         let model;
         let modelName = null;
         const modelNames = [
-          'gemini-pro', // Most stable
-          'gemini-1.5-flash-001',
-          'gemini-1.5-flash',
-          'gemini-1.5-flash-latest'
+          'gemini-1.5-flash', // Most common, works with v1 API
+          'gemini-1.5-flash-001', // Specific version
+          'gemini-1.5-flash-latest', // Latest version
+          'gemini-pro' // Fallback (older but stable)
         ];
         
         for (const testName of modelNames) {
           try {
-            model = gemini.getGenerativeModel({ model: testName });
+            // Remove 'models/' prefix if present (SDK doesn't need it)
+            const cleanModelName = testName.replace(/^models\//, '');
+            model = gemini.getGenerativeModel({ model: cleanModelName });
             // Test if model works
             const testResult = await model.generateContent('test');
             await testResult.response;
-            modelName = testName;
+            modelName = cleanModelName;
             console.log(`✅ Using model: ${modelName}`);
             break;
           } catch (e) {
+            // Check if it's an API version error
+            if (e.message && e.message.includes('not found for API version')) {
+              console.log(`⚠️ Model ${testName} not available in SDK API version: ${e.message}`);
+              console.log('   → This is likely an API version mismatch. Will use fallback.');
+              break; // Exit SDK testing
+            }
             console.log(`⚠️ Model ${testName} failed: ${e.message}`);
             continue;
           }
@@ -1032,26 +1047,34 @@ Make the reviewContent detailed and well-organized for studying.`;
       // Try Gemini first
       if (gemini) {
         try {
-          // Use FREE tier model - try multiple model names
+          // Use FREE tier model - try multiple model names (v1 API compatible)
           let model;
           let modelName = null;
           const modelNames = [
-            'gemini-pro', // Most stable
-            'gemini-1.5-flash-001',
-            'gemini-1.5-flash',
-            'gemini-1.5-flash-latest'
+            'gemini-1.5-flash', // Most common, works with v1 API
+            'gemini-1.5-flash-001', // Specific version
+            'gemini-1.5-flash-latest', // Latest version
+            'gemini-pro' // Fallback (older but stable)
           ];
           
           for (const testName of modelNames) {
             try {
-              model = gemini.getGenerativeModel({ model: testName });
+              // Remove 'models/' prefix if present (SDK doesn't need it)
+              const cleanModelName = testName.replace(/^models\//, '');
+              model = gemini.getGenerativeModel({ model: cleanModelName });
               // Quick test
               const testResult = await model.generateContent('test');
               await testResult.response;
-              modelName = testName;
+              modelName = cleanModelName;
               console.log(`✅ Using model for questions: ${modelName}`);
               break;
             } catch (e) {
+              // Check if it's an API version error
+              if (e.message && e.message.includes('not found for API version')) {
+                console.log(`⚠️ Model ${testName} not available in SDK API version: ${e.message}`);
+                console.log('   → This is likely an API version mismatch. Will use fallback.');
+                break; // Exit SDK testing
+              }
               console.log(`⚠️ Model ${testName} failed: ${e.message}`);
               continue;
             }
