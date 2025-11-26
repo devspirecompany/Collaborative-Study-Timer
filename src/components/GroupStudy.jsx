@@ -596,8 +596,12 @@ const GroupStudy = () => {
     try {
       // If in competition mode, try joining competition first
       if (studyMode === 'competition') {
+        // Normalize room code (uppercase, trimmed) to match how it was created
+        const normalizedRoomCode = roomCode.trim().toUpperCase();
+        console.log('🔍 Joining room with code:', normalizedRoomCode);
+        
         const joinResponse = await joinCompetition({
-          roomId: roomCode.trim(),
+          roomId: normalizedRoomCode,
           userId,
           playerName
         });

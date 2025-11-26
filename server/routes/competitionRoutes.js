@@ -23,7 +23,12 @@ router.post('/create', async (req, res) => {
     if (!roomId) {
       // Generate room ID
       roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    } else {
+      // Normalize custom roomId (uppercase) for consistency
+      roomId = roomId.toUpperCase().trim();
     }
+    
+    console.log('🏠 Creating room with ID:', roomId);
     
     // Check if roomId already exists
     const existingRoom = await Competition.findOne({ roomId });
@@ -57,24 +62,26 @@ router.post('/create', async (req, res) => {
       opponentType: opponentType || undefined // Store opponent type ('player' or 'ai')
     });
 
+    // Add host player to the room (for both 1v1 and group quiz)
+    // This ensures the host is in the players list from the start
+    competition.players.push({
+      userId: userId,
+      playerName: playerName || 'Player',
+      score: 0,
+      answers: [],
+      isAI: false
+    });
+    console.log('👤 Added host player to room:', { userId, playerName });
+
     // If AI opponent is selected, add both AI player and user player immediately
     if (opponentType === 'ai' && !isGroupQuiz) {
-      // Add AI player
+      // Add AI player (host already added above)
       competition.players.push({
         userId: new mongoose.Types.ObjectId(), // AI player has special ID
         playerName: 'AI Opponent',
         score: 0,
         answers: [],
         isAI: true // Mark as AI player
-      });
-      
-      // Add user player
-      competition.players.push({
-        userId: userId,
-        playerName: playerName || 'Player',
-        score: 0,
-        answers: [],
-        isAI: false
       });
       
       // Start competition immediately with AI and user
@@ -196,7 +203,11 @@ router.post('/join', async (req, res) => {
       });
     }
 
-    const competition = await Competition.findOne({ roomId });
+    // Normalize roomId (uppercase) to match how it was created
+    const normalizedRoomId = roomId.toUpperCase().trim();
+    console.log('🔍 Looking for room with ID:', normalizedRoomId);
+    
+    const competition = await Competition.findOne({ roomId: normalizedRoomId });
 
     if (!competition) {
       return res.status(404).json({
