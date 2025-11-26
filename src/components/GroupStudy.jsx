@@ -642,8 +642,19 @@ const GroupStudy = () => {
               // Start polling for players
               pollForGroupQuizPlayers(joinResponse.competition.roomId);
             } else {
-              // For 1v1, wait for opponent
-              setIsWaitingForOpponent(true);
+              // For 1v1, show waiting room modal (same as Group Quiz)
+              setCreatedRoomCode(joinResponse.competition.roomId);
+              setShowWaitingRoom(true);
+              setIsWaitingRoomHost(false); // Joining player is not host
+              // Initialize with current user and existing players
+              const existingPlayers = joinResponse.competition.players || [];
+              const participants = existingPlayers.map(player => ({
+                userId: player.userId?.toString() || player.userId,
+                username: player.playerName,
+                joinedAt: player.joinedAt || new Date()
+              }));
+              setWaitingRoomParticipants(participants);
+              // Start polling for opponent
               pollForOpponent(joinResponse.competition.roomId);
             }
             return;
@@ -1159,32 +1170,49 @@ const GroupStudy = () => {
       try {
         // Check if someone joined our room
         const response = await getCompetition(roomIdToPoll);
-        if (response.success && response.competition.players.length >= 2) {
-          clearInterval(pollInterval);
+        if (response.success && response.competition) {
+          // Update waiting room participants if modal is open
+          if (showWaitingRoom) {
+            const players = response.competition.players || [];
+            const participants = players.map(player => ({
+              userId: player.userId?.toString() || player.userId,
+              username: player.playerName,
+              joinedAt: player.joinedAt || new Date()
+            }));
+            setWaitingRoomParticipants(participants);
+          }
           
-          // Fixed 20 seconds per question
-          const questions = response.competition.questions;
-          setTimePerQuestion(20);
-          
-          setIsWaitingForOpponent(false);
-          setIsInCompetition(true);
-          const opponent = response.competition.players.find(p => p.userId !== userId);
-          setCompetitionData({
-            opponentName: opponent?.playerName || 'Player2',
-            opponentAvatar: opponent?.playerName?.charAt(0) || 'P2',
-            totalQuestions: questions.length,
-            subject: response.competition.subject
-          });
-          setCurrentQuestionIndex(0);
-          setScore(0);
-          setOpponentScore(0);
-          setTimeRemaining(20);
-          setAnsweredQuestions(new Set());
-          setSelectedAnswer(null);
-        } else if (attempts >= maxAttempts) {
-          clearInterval(pollInterval);
-          showNotificationModal('No opponent found after 60 seconds. You can try again or share your room code with a friend.', 'error');
-          setIsWaitingForOpponent(false);
+          // Check if we have 2 players
+          if (response.competition.players.length >= 2) {
+            clearInterval(pollInterval);
+            
+            // Fixed 20 seconds per question
+            const questions = response.competition.questions;
+            setTimePerQuestion(20);
+            
+            // Close waiting room modal if open
+            setShowWaitingRoom(false);
+            setIsWaitingForOpponent(false);
+            setIsInCompetition(true);
+            const opponent = response.competition.players.find(p => p.userId !== userId);
+            setCompetitionData({
+              opponentName: opponent?.playerName || 'Player2',
+              opponentAvatar: opponent?.playerName?.charAt(0) || 'P2',
+              totalQuestions: questions.length,
+              subject: response.competition.subject
+            });
+            setCurrentQuestionIndex(0);
+            setScore(0);
+            setOpponentScore(0);
+            setTimeRemaining(20);
+            setAnsweredQuestions(new Set());
+            setSelectedAnswer(null);
+          } else if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            showNotificationModal('No opponent found after 60 seconds. You can try again or share your room code with a friend.', 'error');
+            setShowWaitingRoom(false);
+            setIsWaitingForOpponent(false);
+          }
         }
         attempts++;
         
@@ -1197,6 +1225,7 @@ const GroupStudy = () => {
       } catch (error) {
         console.error('Error polling for opponent:', error);
         clearInterval(pollInterval);
+        setShowWaitingRoom(false);
         setIsWaitingForOpponent(false);
       }
     }, 1000);
